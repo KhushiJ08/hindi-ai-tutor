@@ -5,21 +5,14 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL_NAME = "gemma4:e4b"
 
 def get_response(user_input):
-    prompt = f"""
-    Tum ek friendly Hindi tutor ho.
-
-    Student ka question:
-    {user_input}
-
-    Simple Hindi mein samjhao.
-    Gaon example use karo.
-    End mein ek chhota sa question pucho.
-    """
+    prompt = f"""Tum ek friendly Hindi tutor ho.
+Student ka question: {user_input}
+Simple Hindi mein samjhao. Gaon example use karo. End mein ek chhota sa question pucho."""
 
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
-        "stream": False,
+        "stream": False
     }
 
     try:
