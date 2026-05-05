@@ -1,7 +1,8 @@
-import google.generativeai as genai
+import requests
 
-# 🔑 Put your NEW API key here
-genai.configure(api_key="YAIzaSyD-keQHD1YZYovw4ZpRVot7d6PRdjpkyDM")
+# 🏠 Locally hosted Gemma 4 via Ollama
+OLLAMA_URL = "http://localhost:11434/api/generate"
+MODEL_NAME = "gemma4:e4b"
 
 def get_response(user_input):
     prompt = f"""
@@ -15,8 +16,19 @@ def get_response(user_input):
     End mein ek chhota sa question pucho.
     """
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    payload = {
+        "model": MODEL_NAME,
+        "prompt": prompt,
+        "stream": False,
+    }
 
-    response = model.generate_content(prompt)
-
-    return response.text
+    try:
+        response = requests.post(OLLAMA_URL, json=payload, timeout=120)
+        response.raise_for_status()
+        return response.json()["response"]
+    except requests.exceptions.ConnectionError:
+        return "⚠️ Ollama server se connect nahi ho paa raha. Kya Ollama chal raha hai? (`ollama serve`)"
+    except requests.exceptions.Timeout:
+        return "⚠️ Model ka response bahut time le raha hai. Thoda wait karke phir try karo."
+    except Exception as e:
+        return f"⚠️ Kuch gadbad ho gayi: {e}"
