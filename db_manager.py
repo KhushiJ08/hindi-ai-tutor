@@ -1,5 +1,5 @@
 import sqlite3
-import datetime
+from datetime import date, datetime
 
 DB_NAME = "tutor.db"
 
@@ -39,26 +39,17 @@ def init_db():
                 FOREIGN KEY (student_id) REFERENCES Students(student_id)
             )
         ''')
-        
         conn.commit()
     print("Database initialized successfully.")
 
-# Run this once when the file is executed directly to create the file
-if __name__ == "__main__":
-    init_db()
-
-from datetime import date, timedelta
-
-# ... (Keep your existing init_db() code at the top) ...
 
 def login_and_update_streak(student_name):
     """Logs the student in and calculates their current streak."""
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
         today = date.today()
-        today_str = today.isoformat() # e.g., '2026-05-07'
+        today_str = today.isoformat() 
 
-        # 1. Check if the student already exists
         cursor.execute("SELECT student_id FROM Students WHERE name = ?", (student_name,))
         student_row = cursor.fetchone()
 
@@ -72,7 +63,7 @@ def login_and_update_streak(student_name):
                 VALUES (?, ?, 1, 1)
             ''', (student_id, today_str))
             conn.commit()
-            return student_id, 1  # Starting streak is 1
+            return student_id, 1  
 
         else:
             # --- RETURNING STUDENT ROUTINE ---
@@ -84,19 +75,14 @@ def login_and_update_streak(student_name):
             current_streak = streak_data[1]
             highest_streak = streak_data[2]
 
-            # Calculate the date difference
             delta_days = (today - last_active).days
 
             if delta_days == 1:
-                # They logged in yesterday! Increment streak.
                 current_streak += 1
                 highest_streak = max(current_streak, highest_streak)
             elif delta_days > 1:
-                # They missed a day. Reset streak.
                 current_streak = 1
-            # (If delta_days == 0, they already logged in today, so streak stays the same)
 
-            # Update the database with the new date and streak
             cursor.execute('''
                 UPDATE Streaks 
                 SET last_active_date = ?, current_streak = ?, highest_streak = ?
@@ -105,3 +91,22 @@ def login_and_update_streak(student_name):
             
             conn.commit()
             return student_id, current_streak
+
+
+def log_concept(student_id, concept_name, status):
+    """Saves a record of the topic the student is learning."""
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        timestamp = datetime.now().isoformat()
+        
+        cursor.execute('''
+            INSERT INTO ConceptLogs (student_id, concept_name, status, timestamp)
+            VALUES (?, ?, ?, ?)
+        ''', (student_id, concept_name, status, timestamp))
+        
+        conn.commit()
+
+
+# Run this once when the file is executed directly to create the tables
+if __name__ == "__main__":
+    init_db()
