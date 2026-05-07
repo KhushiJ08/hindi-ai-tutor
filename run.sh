@@ -10,4 +10,4 @@ then
 fi
 
 # Run the app
-streamlit run app.pycurl -fsSL https://ollama.com/install.sh |
+streamlit run app.py
