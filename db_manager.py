@@ -46,3 +46,62 @@ def init_db():
 # Run this once when the file is executed directly to create the file
 if __name__ == "__main__":
     init_db()
+
+from datetime import date, timedelta
+
+# ... (Keep your existing init_db() code at the top) ...
+
+def login_and_update_streak(student_name):
+    """Logs the student in and calculates their current streak."""
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        today = date.today()
+        today_str = today.isoformat() # e.g., '2026-05-07'
+
+        # 1. Check if the student already exists
+        cursor.execute("SELECT student_id FROM Students WHERE name = ?", (student_name,))
+        student_row = cursor.fetchone()
+
+        if not student_row:
+            # --- NEW STUDENT ROUTINE ---
+            cursor.execute("INSERT INTO Students (name, join_date) VALUES (?, ?)", (student_name, today_str))
+            student_id = cursor.lastrowid
+            
+            cursor.execute('''
+                INSERT INTO Streaks (student_id, last_active_date, current_streak, highest_streak) 
+                VALUES (?, ?, 1, 1)
+            ''', (student_id, today_str))
+            conn.commit()
+            return student_id, 1  # Starting streak is 1
+
+        else:
+            # --- RETURNING STUDENT ROUTINE ---
+            student_id = student_row[0]
+            cursor.execute("SELECT last_active_date, current_streak, highest_streak FROM Streaks WHERE student_id = ?", (student_id,))
+            streak_data = cursor.fetchone()
+            
+            last_active = date.fromisoformat(streak_data[0])
+            current_streak = streak_data[1]
+            highest_streak = streak_data[2]
+
+            # Calculate the date difference
+            delta_days = (today - last_active).days
+
+            if delta_days == 1:
+                # They logged in yesterday! Increment streak.
+                current_streak += 1
+                highest_streak = max(current_streak, highest_streak)
+            elif delta_days > 1:
+                # They missed a day. Reset streak.
+                current_streak = 1
+            # (If delta_days == 0, they already logged in today, so streak stays the same)
+
+            # Update the database with the new date and streak
+            cursor.execute('''
+                UPDATE Streaks 
+                SET last_active_date = ?, current_streak = ?, highest_streak = ?
+                WHERE student_id = ?
+            ''', (today_str, current_streak, highest_streak, student_id))
+            
+            conn.commit()
+            return student_id, current_streak
