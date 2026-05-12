@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Prajna — AI-powered Hindi tutor. Sign in or create an account to begin your learning journey.">
+  <title>Prajna — Sign In</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>ज्ञ</text></svg>">
+</head>
+<body>
+  <!-- Glow Blobs -->
+  <div class="glow-blob"></div>
+  <div class="glow-blob-top"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar" id="navbar">
+    <a href="login.html" class="nav-logo">
+      <span class="brace">{</span><span class="name">prajna</span><span class="brace">}</span>
+    </a>
+    <div class="nav-right">
+      <div class="nav-lang" id="navLangToggle">
+        <button class="lang-btn active" data-lang="Hindi" onclick="setLanguage('Hindi')">हिन्दी</button>
+        <button class="lang-btn" data-lang="English" onclick="setLanguage('English')">EN</button>
+        <div class="lang-slider" id="langSlider"></div>
+      </div>
+      <a href="#" class="nav-link nav-link--ghost" onclick="switchTab('signin')">
+        <span data-en="Already have an account?" data-hi="पहले से अकाउंट है?">Already have an account?</span> <span>Sign in</span>
+      </a>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="login-page">
+    <!-- LEFT COLUMN -->
+    <section class="login-left">
+      <p class="hero-label fade-up">w i s d o m ,&nbsp;&nbsp; s p o k e n .</p>
+
+      <div class="hero-heading fade-up">
+        <div class="line-hindi">नमस्ते !</div>
+        <div class="line-eng">I'm Prajna.</div>
+      </div>
+
+      <p class="hero-tagline fade-up">ज् ञ ा न&nbsp;&nbsp; क ी&nbsp;&nbsp; भ ा ष ा&nbsp;&nbsp; ब ो ल ो</p>
+
+      <div class="hero-glyph hero-glyph--login fade-up" aria-hidden="true">ज्ञ</div>
+
+      <div class="feature-pills fade-up" style="margin-top:32px;">
+        <span class="feature-pill">🧠&nbsp; AI-powered Hindi tutor</span>
+        <span class="feature-pill">📚&nbsp; Built for rural learners</span>
+        <span class="feature-pill">⚡&nbsp; Fast &amp; deep modes</span>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN -->
+    <section class="login-right">
+      <div class="auth-card">
+        <!-- Logo -->
+        <div class="auth-logo">
+          <span class="nav-logo">
+            <span class="brace">{</span><span class="name">prajna</span><span class="brace">}</span>
+          </span>
+        </div>
+        <p class="auth-subtitle">अपना सफर शुरू करो</p>
+
+        <!-- Tabs -->
+        <div class="tab-switcher" id="tabSwitcher">
+          <button class="tab-btn active" data-tab="signin" id="tabSignin" onclick="switchTab('signin')">Sign In</button>
+          <button class="tab-btn" data-tab="signup" id="tabSignup" onclick="switchTab('signup')">Sign Up</button>
+          <div class="tab-slider" id="tabSlider"></div>
+        </div>
+
+        <!-- Sign In Form -->
+        <form id="formSignin" class="auth-form" onsubmit="handleSignin(event)">
+          <div class="form-group">
+            <label for="si-email">Name / नाम</label>
+            <input type="text" id="si-email" class="form-input" placeholder="अपना नाम लिखो" required>
+            <span class="field-error" id="si-email-err"></span>
+          </div>
+          <div class="form-group">
+            <label for="si-password">Password</label>
+            <input type="password" id="si-password" class="form-input" placeholder="••••••••" required>
+            <button type="button" class="toggle-pw" onclick="togglePw('si-password',this)">👁</button>
+            <span class="field-error" id="si-password-err"></span>
+          </div>
+          <a href="#" class="forgot-link">Forgot password?</a>
+
+          <button type="submit" class="btn-primary">Sign In&nbsp; →</button>
+        </form>
+
+        <!-- Sign Up Form -->
+        <form id="formSignup" class="auth-form" style="display:none;" onsubmit="handleSignup(event)">
+          <div class="form-group">
+            <label for="su-name">Name / नाम</label>
+            <input type="text" id="su-name" class="form-input" placeholder="अपना नाम लिखो" required>
+            <span class="field-error" id="su-name-err"></span>
+          </div>
+          <div class="form-group" style="display:none;">
+            <label for="su-email">Email</label>
+            <input type="text" id="su-email" class="form-input" value="none" required>
+            <span class="field-error" id="su-email-err"></span>
+          </div>
+          <div class="form-group">
+            <label for="su-password">Password</label>
+            <input type="password" id="su-password" class="form-input" placeholder="••••••••" required>
+            <button type="button" class="toggle-pw" onclick="togglePw('su-password',this)">👁</button>
+            <span class="field-error" id="su-password-err"></span>
+          </div>
+          <div class="form-group">
+            <label for="su-confirm">Confirm Password</label>
+            <input type="password" id="su-confirm" class="form-input" placeholder="••••••••" required>
+            <button type="button" class="toggle-pw" onclick="togglePw('su-confirm',this)">👁</button>
+            <span class="field-error" id="su-confirm-err"></span>
+          </div>
+
+          <button type="submit" class="btn-primary" style="margin-top:8px;">Create Account&nbsp; →</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

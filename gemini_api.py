@@ -7,19 +7,19 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL_NAME = "gemma4:e4b"
 
 # ── Mode-specific Ollama generation options ──
-# Fast: short context, fewer tokens, snappy replies
-# Slow: large context, more tokens, detailed reasoning
+# Fast: tiny context, very few tokens → snappy 2-4 sentence replies
+# Slow: large context, many tokens → detailed step-by-step explanations
 MODE_OPTIONS = {
     "Fast Result": {
-        "num_ctx": 2048,      # context window (tokens)
-        "num_predict": 512,   # max output tokens
-        "temperature": 0.7,   # slightly creative
-        "top_p": 0.9,
-        "repeat_penalty": 1.1,
+        "num_ctx": 1024,      # small context window
+        "num_predict": 256,   # very short output
+        "temperature": 0.8,   # slightly creative
+        "top_p": 0.85,
+        "repeat_penalty": 1.2,
     },
     "Long Think": {
-        "num_ctx": 8192,      # large context for history
-        "num_predict": 2048,  # room for chain-of-thought + answer
+        "num_ctx": 8192,      # large context for full history
+        "num_predict": 4096,  # room for chain-of-thought + detailed answer
         "temperature": 0.5,   # more focused
         "top_p": 0.95,
         "repeat_penalty": 1.1,
@@ -34,9 +34,22 @@ def get_system_prompt(language="Hindi", mode="Fast Result"):
     
     think_rule = ""
     thought_process_json = ""
-    if mode == "Long Think":
+    length_rule = ""
+    if mode == "Fast Result":
+        length_rule = """- FAST MODE: Your tutor_response MUST be SHORT — maximum 2-4 sentences.
+- Be DIRECT. Give the core answer immediately. No lengthy introductions.
+- Skip detailed examples unless absolutely necessary. One brief analogy is enough.
+- Do NOT write paragraphs. Keep it crisp and to the point.
+"""
+    elif mode == "Long Think":
         think_rule = "- LONG THINK MODE: You must think step-by-step in detail about the student's problem, misconceptions, and your strategy BEFORE writing the final response. Write your reasoning inside the 'thought_process' field.\n"
         thought_process_json = '    "thought_process": "Your detailed step-by-step reasoning here",\n'
+        length_rule = """- DETAILED MODE: Give a THOROUGH, COMPREHENSIVE explanation.
+- Use multiple examples and analogies from village life.
+- Break down complex concepts step-by-step.
+- Include "Why it matters" and "Common mistakes to avoid".
+- Your response should be 8-15 sentences with rich detail.
+"""
 
     if language == "English":
         return f"""You are an ADAPTIVE English tutor who teaches rural India's students in simple English.
@@ -60,7 +73,7 @@ You are not just a chatbot — you are a SMART TUTOR AGENT who DECIDEs what to d
    Do not guess — understand first, then answer.
 
 === DECISION MAKING RULES ===
-{think_rule}- Choose the BEST action based on the student's message, past conversation, and performance.
+{length_rule}{think_rule}- Choose the BEST action based on the student's message, past conversation, and performance.
 - If student asks a new topic → "explain" (with village analogy)
 - If student answers correctly → "quiz" or "game" (increase challenge)
 - If student answers wrong repeatedly → "revise" (explain again differently)
@@ -133,7 +146,7 @@ Tum sirf ek chatbot nahi ho — tum ek SMART TUTOR AGENT ho jo har message ke ba
    Mat guess karo — pehle samjho, phir jawab do.
 
 === DECISION MAKING RULES ===
-{think_rule}- Student ka message, pichli baatcheet, aur performance dekh ke BEST action choose karo.
+{length_rule}{think_rule}- Student ka message, pichli baatcheet, aur performance dekh ke BEST action choose karo.
 - Agar student ne naya topic pucha → "explain" (with village analogy)
 - Agar student ne sahi jawab diya → "quiz" ya "game" (challenge badhao)
 - Agar student galat jawab de raha hai baar baar → "revise" (dobara samjhao, alag tarike se)

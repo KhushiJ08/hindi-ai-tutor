@@ -1,5 +1,9 @@
 #!/bin/bash
-# Activate the virtual environment
+echo "============================================"
+echo "   Prajna - Hindi AI Tutor"
+echo "============================================"
+
+# Activate virtual environment if it exists
 if [ -d "venv" ]; then
     source venv/bin/activate
 else
@@ -11,8 +15,7 @@ echo "Checking dependencies..."
 pip install -r requirements.txt --quiet 2>/dev/null
 
 # Ensure Ollama is running in the background
-if ! pgrep -x "ollama" > /dev/null
-then
+if ! pgrep -x "ollama" > /dev/null; then
     echo "Starting Ollama server..."
     ollama serve &
     sleep 5
@@ -21,5 +24,10 @@ fi
 # Pull the model if not already downloaded
 ollama pull gemma4:e4b
 
-# Run the app
-streamlit run app.py
+# Launch the Prajna server
+echo "============================================"
+echo "   Prajna is running!"
+echo "   Open http://localhost:8080/login.html"
+echo "============================================"
+
+python3 server.py

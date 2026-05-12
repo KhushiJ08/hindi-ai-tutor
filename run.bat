@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo    Hindi AI Tutor - Starting Up...
+echo    Prajna - Hindi AI Tutor
 echo ============================================
 
 :: Activate virtual environment if it exists
@@ -30,11 +30,11 @@ if %ERRORLEVEL% NEQ 0 (
 echo [4/4] Ensuring model is available...
 ollama pull gemma4:e4b
 
-:: Launch the app
+:: Launch the Prajna server
 echo ============================================
-echo    Launching Hindi AI Tutor...
-echo    Open http://localhost:8501 in your browser
+echo    Prajna is running!
+echo    Open http://localhost:8080/login.html
 echo ============================================
-python -m streamlit run app.py
+python server.py
 
 pause

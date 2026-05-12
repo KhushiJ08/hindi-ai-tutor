@@ -8,16 +8,27 @@ __pycache__/
 *.py[cod]
 *.pyo
 
-# Database (local data, not for git)
+# Database (local data)
 *.db
 
 # IDE / Editor
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Streamlit
-.streamlit/secrets.toml
+# Environment / secrets
+.env
+*.env
+.gemini/
+
+# Logs
+*.log
+
+# Node (if added later)
+node_modules/

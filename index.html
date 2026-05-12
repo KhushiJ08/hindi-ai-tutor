@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Prajna — AI-powered Hindi tutor. Chat, learn, and master Hindi with fast and deep learning modes.">
+  <title>Prajna — Chat</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>ज्ञ</text></svg>">
+</head>
+<body>
+  <!-- Glow Blobs -->
+  <div class="glow-blob"></div>
+  <div class="glow-blob-top"></div>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="nav-logo">
+        <span class="brace">{</span><span class="name">prajna</span><span class="brace">}</span>
+      </span>
+      <button class="sidebar-close" id="sidebarClose" title="Close">✕</button>
+    </div>
+
+    <!-- User Info -->
+    <div class="sidebar-section">
+      <div class="sidebar-user" id="sidebarUser">
+        <div class="nav-avatar" id="sidebarAvatar">U</div>
+        <div>
+          <div class="sidebar-name" id="sidebarName">User</div>
+          <div class="sidebar-streak" id="sidebarStreak">🔥 0 Days</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Badges -->
+    <div class="sidebar-section" id="badgesSection" style="display:none;">
+      <div class="sidebar-label">🏅 Badges</div>
+      <div class="badges-list" id="badgesList"></div>
+    </div>
+
+    <!-- Progress -->
+    <div class="sidebar-section">
+      <div class="sidebar-label" data-en="📊 Progress" data-hi="📊 प्रगति">📊 Progress</div>
+      <div class="progress-stats" id="progressStats">
+        <div class="stat-item stat-mastered">
+          <span class="stat-num" id="statMastered">0</span>
+          <span class="stat-label" data-en="Mastered" data-hi="पारंगत">Mastered</span>
+        </div>
+        <div class="stat-item stat-learning">
+          <span class="stat-num" id="statLearning">0</span>
+          <span class="stat-label" data-en="Learning" data-hi="सीख रहे">Learning</span>
+        </div>
+        <div class="stat-item stat-struggling">
+          <span class="stat-num" id="statStruggling">0</span>
+          <span class="stat-label" data-en="Struggling" data-hi="कठिन">Struggling</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Calendar -->
+    <div class="sidebar-section">
+      <div class="sidebar-label" data-en="📅 Learning Calendar" data-hi="📅 कैलेंडर">📅 Learning Calendar</div>
+      <div class="mini-calendar" id="miniCalendar"></div>
+      <div class="cal-legend">
+        <span><span class="cal-dot cal-dot--active"></span> <span data-en="Active" data-hi="सक्रिय">Active</span></span>
+        <span><span class="cal-dot cal-dot--today"></span> <span data-en="Today" data-hi="आज">Today</span></span>
+        <span><span class="cal-dot cal-dot--none"></span> <span data-en="None" data-hi="कोई नहीं">None</span></span>
+      </div>
+    </div>
+
+    <!-- Language Toggle -->
+    <div class="sidebar-section">
+      <div class="sidebar-label">🌐 Language / भाषा</div>
+      <div class="lang-toggle" id="langToggle">
+        <button class="lang-btn active" data-lang="Hindi" onclick="setLanguage('Hindi')">हिन्दी</button>
+        <button class="lang-btn" data-lang="English" onclick="setLanguage('English')">English</button>
+        <div class="lang-slider" id="langSlider"></div>
+      </div>
+    </div>
+
+    <!-- Logout -->
+    <div class="sidebar-bottom">
+      <button class="logout-btn" onclick="logout()">
+        <span data-en="🚪 Logout" data-hi="🚪 लॉगआउट">🚪 Logout</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Sidebar Overlay -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar" id="navbar">
+    <div class="nav-left">
+      <button class="hamburger" id="hamburgerBtn" title="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <a href="index.html" class="nav-logo">
+        <span class="brace">{</span><span class="name">prajna</span><span class="brace">}</span>
+      </a>
+    </div>
+    <div class="nav-right">
+      <a href="#chat-zone" class="nav-link">Chat</a>
+      <a href="#" class="nav-link" data-en="About" data-hi="जानकारी">About</a>
+      <div class="nav-lang" id="navLangToggle">
+        <button class="lang-btn active" data-lang="Hindi" onclick="setLanguage('Hindi')">हिन्दी</button>
+        <button class="lang-btn" data-lang="English" onclick="setLanguage('English')">EN</button>
+        <div class="lang-slider" id="navLangSlider"></div>
+      </div>
+      <div class="nav-avatar" id="navAvatar" onclick="toggleSidebar()">KJ</div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="chat-page" id="chatPage">
+
+    <!-- ZONE 1 — HERO -->
+    <section class="hero-zone" id="heroZone">
+      <div class="hero-zone-left">
+        <p class="hero-label fade-up">w i s d o m ,&nbsp;&nbsp; s p o k e n .</p>
+
+        <div class="hero-heading fade-up">
+          <div class="line-hindi">नमस्ते !</div>
+          <div class="line-eng">I'm Prajna.</div>
+        </div>
+
+        <p class="hero-tagline fade-up">ज् ञ ा न&nbsp;&nbsp; क ी&nbsp;&nbsp; भ ा ष ा&nbsp;&nbsp; ब ो ल ो</p>
+
+        <div class="cta-row fade-up">
+          <a href="#chat-zone" class="cta-primary" data-en="Start Learning" data-hi="सीखना शुरू करो">Start Learning</a>
+          <button class="cta-icon" title="Prajna">प्र</button>
+          <a href="https://github.com" target="_blank" class="cta-icon" title="GitHub">
+            <svg viewBox="0 0 24 24"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.11.82-.26.82-.58v-2.16c-3.34.73-4.04-1.61-4.04-1.61a3.18 3.18 0 0 0-1.33-1.76c-1.09-.74.08-.73.08-.73a2.52 2.52 0 0 1 1.84 1.24 2.56 2.56 0 0 0 3.5 1 2.56 2.56 0 0 1 .76-1.6c-2.67-.3-5.47-1.33-5.47-5.93a4.64 4.64 0 0 1 1.24-3.22 4.3 4.3 0 0 1 .12-3.18s1-.32 3.3 1.23a11.4 11.4 0 0 1 6.01 0c2.3-1.55 3.3-1.23 3.3-1.23a4.3 4.3 0 0 1 .11 3.18 4.64 4.64 0 0 1 1.24 3.22c0 4.61-2.8 5.63-5.48 5.92a2.87 2.87 0 0 1 .82 2.23v3.29c0 .32.21.7.82.58A12 12 0 0 0 12 .3z"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <div class="hero-zone-right">
+        <div class="hero-glyph hero-glyph--chat fade-up" aria-hidden="true">ज्ञ</div>
+      </div>
+    </section>
+
+    <!-- ZONE 2 — CHAT MESSAGES -->
+    <section class="chat-zone" id="chat-zone">
+      <div class="chat-messages" id="chatMessages">
+        <!-- Welcome message from Prajna -->
+        <div class="msg msg--bot">
+          <div class="msg-avatar">प्र</div>
+          <div>
+            <div class="msg-bubble">
+              <span class="hindi">नमस्ते!</span> I'm Prajna, your AI Hindi tutor. Ask me anything about Hindi — grammar, vocabulary, pronunciation, or just practice a conversation! 🙏
+            </div>
+            <button class="tts-btn" onclick="speak(this.closest('.msg').querySelector('.msg-bubble').textContent)" data-en="🔊 Listen" data-hi="🔊 सुनो">🔊 Listen</button>
+            <div class="msg-time">Just now</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ZONE 3 — INPUT BOX -->
+    <div class="input-zone" id="inputZone">
+      <div class="input-container" id="inputContainer">
+        <!-- Image Previews -->
+        <div class="img-previews" id="imgPreviews"></div>
+
+        <!-- Textarea -->
+        <textarea
+          class="chat-textarea"
+          id="chatTextarea"
+          placeholder="प्रज्ञा से पूछो..."
+          data-placeholder-en="Ask Prajna..."
+          data-placeholder-hi="प्रज्ञा से पूछो..."
+          rows="1"
+        ></textarea>
+
+        <!-- Toolbar -->
+        <div class="input-toolbar">
+          <div class="toolbar-left">
+            <!-- Attach Button -->
+            <button class="attach-btn" id="attachBtn" title="Attach image">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+            <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
+
+            <!-- Mode Toggle -->
+            <div class="mode-toggle" id="modeToggle">
+              <button class="mode-btn active" data-mode="fast" id="modeFast" onclick="setMode('fast')" data-en="⚡ Fast" data-hi="⚡ त्वरित">⚡ त्वरित</button>
+              <button class="mode-btn" data-mode="deep" id="modeDeep" onclick="setMode('deep')" data-en="🧠 Deep" data-hi="🧠 विस्तृत">🧠 विस्तृत</button>
+              <div class="mode-slider" id="modeSlider"></div>
+            </div>
+
+
+          </div>
+
+          <!-- Send Button -->
+          <button class="send-btn disabled" id="sendBtn" onclick="sendMessage()" disabled>
+            <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
