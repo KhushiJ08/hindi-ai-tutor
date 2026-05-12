@@ -100,7 +100,11 @@ if "student_id" not in st.session_state:
             
         else:
             # Call our SQLite DB function to get ID and calculate streak
-            s_id, streak = login_and_update_streak(clean_name, clean_password)
+            try:
+                s_id, streak = login_and_update_streak(clean_name, clean_password)
+            except ValueError:
+                st.error(t("⚠️ Wrong password or name already taken!", "⚠️ Galat password ya naam pehle se maujood hai!"))
+                st.stop()
 
             # Save to Streamlit's permanent memory box
             st.session_state["student_id"] = s_id
@@ -235,21 +239,82 @@ else:
         st.stop() # Prevents the chat UI from rendering
 
     # Display chat history
-    for msg in st.session_state.get("messages", []):
-        with st.chat_message(msg["role"], avatar=msg.get("avatar")):
-            # Show images if this message had them
-            if msg.get("images"):
-                img_cols = st.columns(4)
-                for idx, img_b64 in enumerate(msg["images"]):
-                    with img_cols[idx % 4]:
-                        st.image(
-                            base64.b64decode(img_b64),
-                            use_container_width=True,
+    for msg_idx, msg in enumerate(st.session_state.get("messages", [])):
+        if msg["role"] == "quiz":
+            with st.chat_message("assistant", avatar="🎮"):
+                quiz_data = msg.get("quiz_data", {})
+                question = quiz_data.get("question", "")
+                options = quiz_data.get("options", [])
+                correct = quiz_data.get("correct_answer", "")
+                explanation = quiz_data.get("explanation", "")
+                quiz_type = quiz_data.get("quiz_type", "mcq")
+
+                if question and options:
+                    st.divider()
+                    type_labels = {
+                        "mcq": t("📝 Multiple Choice", "📝 Multiple Choice"),
+                        "spot_the_mistake": t("🔍 What is Wrong?", "🔍 Galat Kya Hai?"),
+                        "fill_blank": t("✏️ Fill in the Blank", "✏️ Fill in the Blank"),
+                    }
+                    emoji = "🎮" if msg.get("action") == "game" else type_labels.get(quiz_type, "📝 Quiz")
+                    st.markdown(f"### {emoji}")
+                    st.markdown(f"**{question}**")
+
+                    if msg.get("answered"):
+                        st.markdown(f"**Your Answer:** {msg['selected_option']} " + ("✅" if msg['is_correct'] else "❌"))
+                        if not msg['is_correct']:
+                            st.markdown(f"**Correct Answer:** {correct}")
+                        if explanation:
+                            st.info(t(f"📖 **Explanation:** {explanation}", f"📖 **Samjho:** {explanation}"))
+                    else:
+                        quiz_key = f"quiz_history_{msg_idx}"
+                        selected = st.radio(
+                            t("Choose your answer:", "Apna jawab chuno:"),
+                            options,
+                            key=quiz_key,
+                            index=None,
                         )
-            st.markdown(msg["content"])
-            # Add play button to past assistant messages
-            if msg["role"] == "assistant":
-                render_tts_button(msg["content"])
+
+                        if st.button(t("✅ Submit Answer", "✅ Jawab Submit Karo"), key=f"submit_{quiz_key}", type="primary"):
+                            if not selected:
+                                st.warning(t("⚠️ Please select an option first!", "⚠️ Pehle ek option chuno!"))
+                            else:
+                                is_correct = (selected == correct)
+                                msg["answered"] = True
+                                msg["selected_option"] = selected
+                                msg["is_correct"] = is_correct
+
+                                if is_correct:
+                                    st.success(t("🎉 **Absolutely correct! Excellent!**", "🎉 **Bilkul sahi! Bahut badhiya!**"))
+                                    st.balloons()
+                                else:
+                                    st.error(t(f"❌ **Wrong!** The correct answer was: **{correct}**", f"❌ **Galat!** Sahi jawab tha: **{correct}**"))
+
+                                log_quiz_result(
+                                    student_id=st.session_state["student_id"],
+                                    topic=msg.get("topic", "Unknown"),
+                                    quiz_type=quiz_type,
+                                    question=question,
+                                    student_answer=selected,
+                                    correct_answer=correct,
+                                    is_correct=is_correct,
+                                )
+                                st.rerun()
+        else:
+            with st.chat_message(msg["role"], avatar=msg.get("avatar")):
+                # Show images if this message had them
+                if msg.get("images"):
+                    img_cols = st.columns(4)
+                    for i, img_b64 in enumerate(msg["images"]):
+                        with img_cols[i % 4]:
+                            st.image(
+                                base64.b64decode(img_b64),
+                                use_container_width=True,
+                            )
+                st.markdown(msg["content"])
+                # Add play button to past assistant messages
+                if msg["role"] == "assistant":
+                    render_tts_button(msg["content"])
 
     # --- Voice Input (Browser Speech API) ---
     btn_voice = t("🎤 Speak (Voice Input)", "🎤 Bolo (Voice Input)")
@@ -451,80 +516,24 @@ else:
                     st.info(t("❓ **Please explain your question more clearly** so I can help you better.", "❓ **Apna question thoda aur clearly batao** taaki main better help kar sakun."))
 
                 elif action in ("quiz", "game"):
-                    # --- Interactive Quiz/Game UI ---
-                    if quiz_data and isinstance(quiz_data, dict):
-                        question = quiz_data.get("question", "")
-                        options = quiz_data.get("options", [])
-                        correct = quiz_data.get("correct_answer", "")
-                        explanation = quiz_data.get("explanation", "")
-                        quiz_type = quiz_data.get("quiz_type", "mcq")
-
-                        if question and options:
-                            st.divider()
-
-                            # Quiz type badge
-                            type_labels = {
-                                "mcq": t("📝 Multiple Choice", "📝 Multiple Choice"),
-                                "spot_the_mistake": t("🔍 What is Wrong?", "🔍 Galat Kya Hai?"),
-                                "fill_blank": t("✏️ Fill in the Blank", "✏️ Fill in the Blank"),
-                            }
-                            emoji = "🎮" if action == "game" else type_labels.get(quiz_type, "📝 Quiz")
-                            st.markdown(f"### {emoji}")
-                            st.markdown(f"**{question}**")
-
-                            # Use a unique key for each quiz based on message count
-                            quiz_key = f"quiz_{len(st.session_state.get('messages', []))}"
-
-                            selected = st.radio(
-                                t("Choose your answer:", "Apna jawab chuno:"),
-                                options,
-                                key=quiz_key,
-                                index=None,
-                            )
-
-                            # Submit button instead of instant check
-                            if st.button(t("✅ Submit Answer", "✅ Jawab Submit Karo"), key=f"submit_{quiz_key}", type="primary"):
-                                if not selected:
-                                    st.warning(t("⚠️ Please select an option first!", "⚠️ Pehle ek option chuno!"))
-                                else:
-                                    is_correct = (selected == correct)
-
-                                    if is_correct:
-                                        st.success(t("🎉 **Absolutely correct! Excellent!**", "🎉 **Bilkul sahi! Bahut badhiya!**"))
-                                        st.balloons()
-                                    else:
-                                        st.error(t(f"❌ **Wrong!** The correct answer was: **{correct}**", f"❌ **Galat!** Sahi jawab tha: **{correct}**"))
-                                        st.caption(t("No worries — we learn from our mistakes! 💪", "Koi baat nahi — galtiyon se hi seekhte hain! 💪"))
-
-                                    # Show explanation
-                                    if explanation:
-                                        st.info(t(f"📖 **Explanation:** {explanation}", f"📖 **Samjho:** {explanation}"))
-
-                                    # Log quiz result to database
-                                    topic = response_data.get("topic", "Unknown")
-                                    log_quiz_result(
-                                        student_id=st.session_state["student_id"],
-                                        topic=topic,
-                                        quiz_type=quiz_type,
-                                        question=question,
-                                        student_answer=selected,
-                                        correct_answer=correct,
-                                        is_correct=is_correct,
-                                    )
-                                    mastery = "Mastered ✅" if is_correct else "Struggling 📚"
-                                    st.toast(f"📊 Quiz Result: {topic} → {mastery}")
+                    st.info(t("👇 Please answer the quiz below!", "👇 Niche diye gaye quiz ka jawab do!"))
 
             # Add user message to history AFTER API call (prevents sending it twice)
             st.session_state["messages"].append(user_msg)
 
             # Build assistant message for chat history
-            assistant_content = tutor_reply
-            if action in ("quiz", "game") and quiz_data:
-                q = quiz_data.get("question", "")
-                if q:
-                    assistant_content += f"\n\n📝 Quiz: {q}"
+            st.session_state["messages"].append({"role": "assistant", "content": tutor_reply, "avatar": "🤖"})
 
-            st.session_state["messages"].append({"role": "assistant", "content": assistant_content, "avatar": "🤖"})
+            if action in ("quiz", "game") and quiz_data:
+                st.session_state["messages"].append({
+                    "role": "quiz",
+                    "quiz_data": quiz_data,
+                    "topic": response_data.get("topic", "Unknown"),
+                    "action": action,
+                    "answered": False,
+                    "selected_option": None,
+                    "is_correct": None
+                })
 
             # 3. Silently log the weak topic in the background for the Teacher Panel
             # Skip if action is quiz/game — log_quiz_result() already logs to ConceptLogs

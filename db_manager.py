@@ -113,13 +113,10 @@ def login_and_update_streak(student_name, password=""):
         today = date.today()
         today_str = today.isoformat()
 
-        cursor.execute(
-            "SELECT student_id FROM Students WHERE name = ? AND password_hash = ?",
-            (student_name, pw_hash),
-        )
-        student_row = cursor.fetchone()
+        cursor.execute("SELECT student_id, password_hash FROM Students WHERE name = ?", (student_name,))
+        existing_students = cursor.fetchall()
 
-        if not student_row:
+        if not existing_students:
             # --- NEW STUDENT ROUTINE ---
             cursor.execute(
                 "INSERT INTO Students (name, password_hash, join_date) VALUES (?, ?, ?)",
@@ -135,15 +132,36 @@ def login_and_update_streak(student_name, password=""):
             conn.commit()
             logger.info("New student registered: %s (id=%d)", student_name, student_id)
             return student_id, 1
-
         else:
+            # Name exists, check password
+            student_id = None
+            for row in existing_students:
+                if row[1] == pw_hash:
+                    student_id = row[0]
+                    break
+                elif row[1] == '':
+                    # Migrate password
+                    cursor.execute("UPDATE Students SET password_hash = ? WHERE student_id = ?", (pw_hash, row[0]))
+                    student_id = row[0]
+                    break
+            
+            if student_id is None:
+                raise ValueError("Invalid password or name already taken")
+
             # --- RETURNING STUDENT ROUTINE ---
-            student_id = student_row[0]
             cursor.execute(
                 "SELECT last_active_date, current_streak, highest_streak FROM Streaks WHERE student_id = ?",
-                (student_id,), #for sqlite3, The parameters argument must be of type tuple, list or dict that's why there is a comma which identifies it as a tuple even if it has only one data_item.
+                (student_id,)
             )
             streak_data = cursor.fetchone()
+
+            if not streak_data:
+                cursor.execute('''
+                    INSERT INTO Streaks (student_id, last_active_date, current_streak, highest_streak) 
+                    VALUES (?, ?, 1, 1)
+                ''', (student_id, today_str))
+                conn.commit()
+                return student_id, 1
 
             last_active = date.fromisoformat(streak_data[0])
             current_streak = streak_data[1]
