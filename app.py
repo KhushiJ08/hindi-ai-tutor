@@ -1,15 +1,85 @@
 import streamlit as st
 import base64
 import io
-import pandas as pd
-import altair as alt
+import re
+import calendar as cal_module
 from datetime import date, timedelta
 from PIL import Image
 from gemini_api import get_response
-from db_manager import login_and_update_streak, log_concept, get_student_progress, log_quiz_result, get_due_reviews, get_calendar_data
+from db_manager import login_and_update_streak, log_concept, log_quiz_result, get_due_reviews, get_calendar_data
 
 def t(en_text, hi_text):
     return en_text if st.session_state.get("language", "Hindi") == "English" else hi_text
+
+def clean_latex(text):
+    """Converts LaTeX math notation to readable Unicode text.
+    Streamlit's KaTeX renderer breaks certain LaTeX into vertical
+    single-character lines, so we strip it out entirely."""
+
+    # Remove display math blocks $$...$$ first, then inline $...$
+    def _replace_math(match):
+        inner = match.group(1)
+        # Common LaTeX command → Unicode replacements
+        replacements = [
+            (r'\\rightarrow', '→'), (r'\\leftarrow', '←'),
+            (r'\\Rightarrow', '⇒'), (r'\\Leftarrow', '⇐'),
+            (r'\\times', '×'), (r'\\div', '÷'),
+            (r'\\pm', '±'), (r'\\mp', '∓'),
+            (r'\\leq', '≤'), (r'\\geq', '≥'),
+            (r'\\neq', '≠'), (r'\\approx', '≈'),
+            (r'\\infty', '∞'), (r'\\pi', 'π'),
+            (r'\\theta', 'θ'), (r'\\alpha', 'α'),
+            (r'\\beta', 'β'), (r'\\gamma', 'γ'),
+            (r'\\delta', 'δ'), (r'\\lambda', 'λ'),
+            (r'\\mu', 'μ'), (r'\\sigma', 'σ'),
+            (r'\\omega', 'ω'), (r'\\phi', 'φ'),
+            (r'\\sqrt', '√'), (r'\\sum', 'Σ'),
+            (r'\\prod', 'Π'), (r'\\int', '∫'),
+            (r'\\partial', '∂'), (r'\\nabla', '∇'),
+            (r'\\cdot', '·'), (r'\\ldots', '…'),
+            (r'\\dots', '…'), (r'\\quad', ' '),
+            (r'\\qquad', '  '), (r'\\,', ' '),
+            (r'\\;', ' '), (r'\\!', ''),
+            (r'\\text', ''), (r'\\mathrm', ''),
+            (r'\\mathbf', ''), (r'\\frac', ''),
+        ]
+        for pattern, repl in replacements:
+            inner = re.sub(pattern, repl, inner)
+
+        # Handle subscripts: _{...} or _X → subscript chars
+        sub_map = str.maketrans('0123456789ijknm', '₀₁₂₃₄₅₆₇₈₉ᵢⱼₖₙₘ')
+        def sub_repl(m):
+            content = m.group(1) or m.group(2)
+            return content.translate(sub_map)
+        inner = re.sub(r'_\{([^}]*)\}|_([a-zA-Z0-9])', sub_repl, inner)
+
+        # Handle superscripts: ^{...} or ^X
+        sup_map = str.maketrans('0123456789n+-', '⁰¹²³⁴⁵⁶⁷⁸⁹ⁿ⁺⁻')
+        def sup_repl(m):
+            content = m.group(1) or m.group(2)
+            return content.translate(sup_map)
+        inner = re.sub(r'\^\{([^}]*)\}|\^([a-zA-Z0-9+-])', sup_repl, inner)
+
+        # Handle \frac{a}{b} → a/b
+        inner = re.sub(r'\{([^}]*)\}\s*\{([^}]*)\}', r'\1/\2', inner)
+
+        # Remove remaining braces
+        inner = inner.replace('{', '').replace('}', '')
+
+        # Clean up leftover backslashes from unknown commands
+        inner = re.sub(r'\\([a-zA-Z]+)', r'\1', inner)
+
+        return inner.strip()
+
+    # Process $$...$$ (display math) and $...$ (inline math)
+    text = re.sub(r'\$\$(.+?)\$\$', _replace_math, text, flags=re.DOTALL)
+    text = re.sub(r'\$(.+?)\$', _replace_math, text, flags=re.DOTALL)
+
+    # Also handle \(...\) and \[...\] delimiters
+    text = re.sub(r'\\\((.+?)\\\)', _replace_math, text, flags=re.DOTALL)
+    text = re.sub(r'\\\[(.+?)\\\]', _replace_math, text, flags=re.DOTALL)
+
+    return text
 
 # --- Constants ---
 MAX_IMAGES = 5
@@ -61,8 +131,6 @@ if "language" not in st.session_state:
     st.session_state["language"] = "Hindi"
 if "mode" not in st.session_state:
     st.session_state["mode"] = "Fast Result"
-if "current_page" not in st.session_state:
-    st.session_state["current_page"] = "chat"
 
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
@@ -137,22 +205,73 @@ else:
         else:
             st.caption(t("🏅 Keep learning daily to earn badges!", "🏅 Keep learning daily to earn badges!"))
 
-        # Progress chart
-        progress = get_student_progress(st.session_state["student_id"])
-        if progress:
-            st.subheader(t("📊 My Progress", "📊 My Progress"))
-            st.bar_chart(progress)
-
-        # Navigation
+        # --- Mini Calendar in Sidebar ---
         st.divider()
-        if st.session_state["current_page"] == "chat":
-            if st.button(t("📅 View Learning Calendar", "📅 Calendar Dekhein"), use_container_width=True):
-                st.session_state["current_page"] = "calendar"
-                st.rerun()
-        else:
-            if st.button(t("💬 Back to Chat", "💬 Chat Par Wapas Jayein"), use_container_width=True):
-                st.session_state["current_page"] = "chat"
-                st.rerun()
+        st.subheader(t("📅 Learning Calendar", "📅 Learning Calendar"))
+
+        past_data, future_data = get_calendar_data(st.session_state["student_id"])
+        active_dates = set(past_data.keys())  # dates with learning activity
+
+        today = date.today()
+        year = today.year
+        month = today.month
+
+        # Month/year header
+        month_name = cal_module.month_name[month]
+        st.markdown(f"**{month_name} {year}**")
+
+        # Build the calendar grid as HTML
+        cal_obj = cal_module.Calendar(firstweekday=6)  # Sunday first
+        month_days = cal_obj.monthdayscalendar(year, month)
+
+        # Day headers
+        day_headers = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+        header_html = "".join([f"<th style='text-align:center;padding:2px 6px;font-size:11px;color:#888;'>{d}</th>" for d in day_headers])
+
+        rows_html = ""
+        for week in month_days:
+            row = ""
+            for day_num in week:
+                if day_num == 0:
+                    row += "<td style='padding:3px;'></td>"
+                else:
+                    day_date = date(year, month, day_num)
+                    date_str = day_date.isoformat()
+                    is_today = (day_date == today)
+                    is_active = (date_str in active_dates)
+
+                    # Determine circle style
+                    if is_active:
+                        bg = "#2ea043"  # green
+                        text_color = "white"
+                    elif is_today:
+                        bg = "#58a6ff"  # blue for today
+                        text_color = "white"
+                    else:
+                        bg = "#3a3a3a"  # neutral dark
+                        text_color = "#aaa"
+
+                    border = "2px solid #58a6ff" if is_today else "none"
+
+                    row += f"""<td style='text-align:center;padding:3px;'>
+                        <div style='width:28px;height:28px;border-radius:50%;background:{bg};
+                        display:inline-flex;align-items:center;justify-content:center;
+                        font-size:11px;color:{text_color};border:{border};'
+                        title='{date_str}'>{day_num}</div></td>"""
+            rows_html += f"<tr>{row}</tr>"
+
+        calendar_html = f"""
+        <table style='border-collapse:collapse;margin:0 auto;'>
+            <tr>{header_html}</tr>
+            {rows_html}
+        </table>
+        <div style='margin-top:8px;font-size:11px;color:#aaa;text-align:center;'>
+            <span style='color:#2ea043;'>●</span> Active &nbsp;
+            <span style='color:#58a6ff;'>●</span> Today &nbsp;
+            <span style='color:#3a3a3a;'>●</span> No activity
+        </div>
+        """
+        st.markdown(calendar_html, unsafe_allow_html=True)
 
         st.divider()
         if st.button(t("🚪 Logout", "🚪 Logout")):
@@ -161,82 +280,6 @@ else:
 
     # --- MAIN TUTOR INTERFACE (Chat UI) ---
     st.success(t(f"Hello, {st.session_state['student_name']}! 🙏 | 🔥 Streak: {st.session_state['streak']} Days", f"Namaste, {st.session_state['student_name']}! 🙏 | 🔥 Streak: {st.session_state['streak']} Days"))
-
-    if st.session_state.get("current_page") == "calendar":
-        st.header(t("📅 My Learning Journey", "📅 Meri Learning Journey"))
-        st.markdown(t("Hover over the dates to see the exact topics you studied and what's coming up next!", "Dates par hover karein apne topics dekhne ke liye!"))
-        
-        past_data, future_data = get_calendar_data(st.session_state["student_id"])
-        
-        records = []
-        all_dates = set(past_data.keys()).union(set(future_data.keys()))
-        
-        for date_str in all_dates:
-            color = "#ebedf0" # default gray
-            tooltip_lines = []
-            
-            if date_str in past_data:
-                day_concepts = past_data[date_str]
-                statuses = day_concepts.values()
-                
-                # Option 1 Priority Logic
-                if "Struggling" in statuses:
-                    color = "#f85149" # Red
-                elif "Learning" in statuses:
-                    color = "#d29922" # Yellow/Orange
-                elif "Mastered" in statuses:
-                    color = "#2ea043" # Green
-                
-                struggling = [c for c, s in day_concepts.items() if s == "Struggling"]
-                learning = [c for c, s in day_concepts.items() if s == "Learning"]
-                mastered = [c for c, s in day_concepts.items() if s == "Mastered"]
-                
-                if struggling: tooltip_lines.append(f"🚨 Struggling: {', '.join(struggling)}")
-                if learning: tooltip_lines.append(f"🟡 Learning: {', '.join(learning)}")
-                if mastered: tooltip_lines.append(f"✅ Mastered: {', '.join(mastered)}")
-                
-            if date_str in future_data:
-                if date_str not in past_data:
-                    color = "#58a6ff" # Blue
-                due = future_data[date_str]
-                tooltip_lines.append(f"📅 Due for Review: {', '.join(due)}")
-                
-            records.append({
-                "Date": date_str,
-                "Color": color,
-                "Details": " | ".join(tooltip_lines)
-            })
-            
-        df = pd.DataFrame(records)
-        
-        if df.empty:
-            st.info(t("No learning data yet! Start chatting with the tutor.", "Abhi tak koi data nahi hai! Tutor se baat shuru karein."))
-        else:
-            df['Date'] = pd.to_datetime(df['Date'])
-            
-            chart = alt.Chart(df).mark_rect(rx=4, ry=4, stroke='white', strokeWidth=2).encode(
-                x=alt.X('week(Date):O', title='Week of Year', axis=alt.Axis(labels=False, ticks=False)),
-                y=alt.Y('day(Date):O', title='Day', sort=['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']),
-                color=alt.Color('Color:N', scale=alt.Scale(None)),
-                tooltip=['Date:T', 'Details:N']
-            ).properties(
-                height=250
-            ).configure_view(
-                stroke=None
-            )
-            
-            st.altair_chart(chart, use_container_width=True)
-            
-            # Legend
-            st.markdown("""
-            **Legend:** 
-            <span style='color:#f85149'>■</span> Struggling &nbsp;
-            <span style='color:#d29922'>■</span> Learning &nbsp;
-            <span style='color:#2ea043'>■</span> Mastered &nbsp;
-            <span style='color:#58a6ff'>■</span> Future Review
-            """, unsafe_allow_html=True)
-            
-        st.stop() # Prevents the chat UI from rendering
 
     # Display chat history
     for msg_idx, msg in enumerate(st.session_state.get("messages", [])):
@@ -311,15 +354,20 @@ else:
                                 base64.b64decode(img_b64),
                                 use_container_width=True,
                             )
-                st.markdown(msg["content"])
+                st.markdown(clean_latex(msg["content"]))
                 # Add play button to past assistant messages
                 if msg["role"] == "assistant":
-                    render_tts_button(msg["content"])
+                    render_tts_button(clean_latex(msg["content"]))
 
     # --- Voice Input (Browser Speech API) ---
+    # Initialize voice text in session state
+    if "voice_text" not in st.session_state:
+        st.session_state["voice_text"] = ""
+
     btn_voice = t("🎤 Speak (Voice Input)", "🎤 Bolo (Voice Input)")
-    err_voice = t("❌ Browser doesn\\'t support voice input", "❌ Browser mein voice support nahi hai")
+    err_voice = t("Browser does not support voice input", "Browser mein voice support nahi hai")
     msg_listening = t("🔴 Listening...", "🔴 Sun raha hoon...")
+    msg_done = t("✅ Got it! Text copied below.", "✅ Mil gaya! Text niche copy ho gaya.")
     lang_voice = "en-US" if st.session_state.get("language", "Hindi") == "English" else "hi-IN"
 
     voice_component = f"""
@@ -330,53 +378,81 @@ else:
             border-radius: 25px; cursor: pointer; font-size: 16px;
             box-shadow: 0 2px 8px rgba(255, 102, 0, 0.3);
             transition: transform 0.2s;
-        " onmouseover="this.style.transform='scale(1.05)'" 
+        " onmouseover="this.style.transform='scale(1.05)'"
            onmouseout="this.style.transform='scale(1)'">
             {btn_voice}
         </button>
         <span id="voiceStatus" style="margin-left: 10px; color: #888;"></span>
+        <div id="voiceResult" style="margin-top:8px;padding:8px 12px;background:#1e1e1e;border-radius:8px;
+            border:1px solid #333;color:#eee;font-size:14px;display:none;cursor:pointer;"
+            title="Click to copy" onclick="copyVoiceText()">
+        </div>
     </div>
     <script>
     function startVoice() {{
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {{
-            document.getElementById('voiceStatus').innerText = '{err_voice}';
+            document.getElementById('voiceStatus').innerText = '❌ {err_voice}';
             return;
         }}
         const recognition = new SpeechRecognition();
         recognition.lang = '{lang_voice}';
         recognition.interimResults = false;
-        
+        recognition.continuous = false;
+
         document.getElementById('voiceBtn').style.background = 'linear-gradient(135deg, #e74c3c, #c0392b)';
         document.getElementById('voiceStatus').innerText = '{msg_listening}';
-        
+        document.getElementById('voiceResult').style.display = 'none';
+
         recognition.onresult = function(event) {{
             const text = event.results[0][0].transcript;
-            // Find the Streamlit chat input and set its value
-            const chatInput = parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
-            if (chatInput) {{
-                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-                nativeInputValueSetter.call(chatInput, text);
-                chatInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                document.getElementById('voiceStatus').innerText = '✅ ' + text;
+            document.getElementById('voiceStatus').innerText = '{msg_done}';
+            document.getElementById('voiceResult').style.display = 'block';
+            document.getElementById('voiceResult').innerText = '🗣️ "' + text + '" — click to copy';
+            document.getElementById('voiceResult').setAttribute('data-text', text);
+
+            // Try to set the chat input value in the parent Streamlit document
+            try {{
+                const chatInput = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
+                if (chatInput) {{
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                    nativeSetter.call(chatInput, text);
+                    chatInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                }}
+            }} catch(e) {{
+                // Cross-origin or selector issue — user can copy manually
             }}
+
             document.getElementById('voiceBtn').style.background = 'linear-gradient(135deg, #FF9933, #FF6600)';
         }};
-        
+
         recognition.onerror = function(event) {{
             document.getElementById('voiceStatus').innerText = '❌ Error: ' + event.error;
             document.getElementById('voiceBtn').style.background = 'linear-gradient(135deg, #FF9933, #FF6600)';
         }};
-        
+
         recognition.onend = function() {{
             document.getElementById('voiceBtn').style.background = 'linear-gradient(135deg, #FF9933, #FF6600)';
         }};
-        
+
         recognition.start();
+    }}
+
+    function copyVoiceText() {{
+        const el = document.getElementById('voiceResult');
+        const text = el.getAttribute('data-text');
+        if (text) {{
+            navigator.clipboard.writeText(text).then(function() {{
+                el.innerText = '📋 Copied! Now paste it in the chat box below.';
+                setTimeout(function() {{
+                    el.innerText = '🗣️ "' + text + '" — click to copy';
+                }}, 2000);
+            }});
+        }}
     }}
     </script>
     """
-    st.components.v1.html(voice_component, height=60)
+    st.components.v1.html(voice_component, height=100)
 
     if "uploader_key" not in st.session_state:
         st.session_state["uploader_key"] = 0
@@ -486,7 +562,7 @@ else:
                     )
 
                 action = response_data.get("action", "explain")
-                tutor_reply = response_data.get("tutor_response", "⚠️ Koi response nahi mila.")
+                tutor_reply = clean_latex(response_data.get("tutor_response", "⚠️ Koi response nahi mila."))
                 quiz_data = response_data.get("quiz_data")
                 next_suggestion = response_data.get("next_action_suggestion")
 

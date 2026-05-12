@@ -70,6 +70,7 @@ After explaining a topic (2-3 times), automatically switch to quiz to test the s
 
 === RESPONSE FORMAT ===
 IMPORTANT: You must respond ONLY with a valid JSON object. No markdown, no code fences.
+NEVER use LaTeX math notation (no $, $$, \frac, \times, \rightarrow, etc). Instead use plain Unicode symbols like ×, ÷, →, ², ³, ½, π, etc. Write math in simple text like "F = m1 × m2 / r²" not "$F = \\frac{{m_1 \\times m_2}}{{r^2}}$".
 {{
 {thought_process_json}    "action": "explain | quiz | revise | game | clarify",
     "tutor_response": "Your friendly English response here (always use simple English)",
@@ -142,6 +143,7 @@ After explaining a topic (2-3 times), automatically switch to quiz to test the s
 
 === RESPONSE FORMAT ===
 IMPORTANT: You must respond ONLY with a valid JSON object. No markdown, no code fences.
+NEVER use LaTeX math notation (no $, $$, \frac, \times, \rightarrow, etc). Instead use plain Unicode symbols like ×, ÷, →, ², ³, ½, π, etc. Write math in simple text like "F = m1 × m2 / r²" not "$F = \\frac{{m_1 \\times m_2}}{{r^2}}$".
 {{
 {thought_process_json}    "action": "explain | quiz | revise | game | clarify",
     "tutor_response": "Your friendly Hindi response here (always use simple Hindi)",
