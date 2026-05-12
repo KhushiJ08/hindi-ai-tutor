@@ -399,7 +399,7 @@ else:
 
             st.session_state["messages"].append({"role": "assistant", "content": assistant_content, "avatar": "🤖"})
 
-            # 3. Silently log the weak topic in the background for the Teacher Panel
+            # 3. Silently log the weak topic in the background for progress tracking
             # Skip if action is quiz/game — log_quiz_result() already logs to ConceptLogs
             topic = response_data.get("topic", "Unknown")
             status = response_data.get("status", "Unknown")

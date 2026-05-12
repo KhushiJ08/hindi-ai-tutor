@@ -6,9 +6,10 @@ An AI-powered Hindi tutor that explains concepts in simple Hindi using local LLM
 
 - **Chat-based tutoring** — Ask questions in Hindi or English and get simple, village-style explanations
 - **Voice input** — Click 🎤 and speak your question (uses browser's Speech API)
+- **Image analysis** — Upload textbook pages, handwritten doubts, or diagrams for AI explanation
 - **Streak tracking** — Daily login streaks with 🥉🥈🥇 badges
 - **Progress tracking** — See what topics you've covered and your mastery level
-- **Teacher dashboard** — A separate panel for teachers to monitor student progress
+- **Quizzes & games** — Interactive MCQs, spot-the-mistake, and fill-in-the-blank challenges
 - **Concept logging** — Every topic is silently tracked with status (Struggling / Learning / Mastered)
 - **Custom dark theme** — India-inspired saffron & dark palette
 
@@ -35,8 +36,6 @@ hindi-ai-tutor/
 ├── students.db             # SQLite database (auto-created)
 ├── .streamlit/
 │   └── config.toml         # Custom Streamlit theme
-├── pages/
-│   └── teacher_dashboard.py  # Teacher analytics panel
 ├── Database_schema.md      # Schema documentation
 └── README.md               # This file
 ```
@@ -84,32 +83,14 @@ ollama serve &
 streamlit run app.py
 ```
 
-### Teacher Dashboard
-
-Navigate to the **Teacher Dashboard** page in the sidebar. Set the password via environment variable:
-
-```bash
-# Linux/Mac
-export TEACHER_PASSWORD="your_secure_password"
-
-# Windows
-set TEACHER_PASSWORD=your_secure_password
-```
-
-Or add it to `.streamlit/secrets.toml` (gitignored):
-```toml
-teacher_password = "your_secure_password"
-```
-
-Fallback default: `teacher123`
-
 ## 📊 Database
 
-The app uses SQLite (`students.db`) with three tables:
+The app uses SQLite (`students.db`) with four tables:
 
 - **Students** — Name, hashed password, join date
 - **Streaks** — Daily activity tracking with current & highest streak
 - **ConceptLogs** — Every topic discussed, tagged as Struggling/Learning/Mastered
+- **QuizLogs** — Quiz attempts with questions, answers, and correctness
 
 ## 🤝 Contributing
 

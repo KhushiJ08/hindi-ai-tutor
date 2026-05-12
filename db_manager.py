@@ -1,22 +1,11 @@
 import sqlite3
 import hashlib
 import logging
-import os
 from datetime import date, datetime
-
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 DB_NAME = "students.db"
-OLD_DB_NAME = "tutor.db"
-
-
-def _migrate_old_db():
-    """Renames tutor.db to students.db if only the old file exists."""
-    if os.path.exists(OLD_DB_NAME) and not os.path.exists(DB_NAME):
-        os.rename(OLD_DB_NAME, DB_NAME)
-        logger.info("Migrated %s → %s", OLD_DB_NAME, DB_NAME)
 
 
 def _hash_password(password):
@@ -26,8 +15,6 @@ def _hash_password(password):
 
 def init_db():
     """Initializes the database with the required tables."""
-    _migrate_old_db()
-
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
 
@@ -79,13 +66,6 @@ def init_db():
                 FOREIGN KEY (student_id) REFERENCES Students(student_id)
             )
         ''')
-
-        # Add password_hash column if upgrading from old schema
-        try:
-            cursor.execute("ALTER TABLE Students ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''")
-            logger.info("Added password_hash column to Students table.")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
 
         conn.commit()
     logger.info("Database initialized successfully.")
@@ -219,49 +199,6 @@ def get_student_progress(student_id):
         ''', (student_id,))
         rows = cursor.fetchall()
     return {row[0]: row[1] for row in rows}
-
-
-def get_teacher_dashboard_data():
-    """Returns all concept logs joined with student names for the teacher panel."""
-    with sqlite3.connect(DB_NAME) as conn:
-        query = '''
-            SELECT Students.name, ConceptLogs.concept_name, ConceptLogs.status, ConceptLogs.timestamp
-            FROM ConceptLogs
-            JOIN Students ON ConceptLogs.student_id = Students.student_id
-            ORDER BY ConceptLogs.timestamp DESC
-        '''
-        df = pd.read_sql_query(query, conn)
-    return df
-
-
-def get_all_students():
-    """Returns a list of all students with their streak info."""
-    with sqlite3.connect(DB_NAME) as conn:
-        query = '''
-            SELECT Students.name, Students.join_date,
-                   Streaks.current_streak, Streaks.highest_streak
-            FROM Students
-            JOIN Streaks ON Students.student_id = Streaks.student_id
-            ORDER BY Students.name
-        '''
-        df = pd.read_sql_query(query, conn)
-    return df
-
-
-def get_quiz_dashboard_data():
-    """Returns all quiz logs joined with student names for the teacher panel."""
-    with sqlite3.connect(DB_NAME) as conn:
-        query = '''
-            SELECT Students.name, QuizLogs.topic, QuizLogs.quiz_type,
-                   QuizLogs.question, QuizLogs.student_answer, QuizLogs.correct_answer,
-                   CASE WHEN QuizLogs.is_correct = 1 THEN 'Correct ✅' ELSE 'Wrong ❌' END as result,
-                   QuizLogs.timestamp
-            FROM QuizLogs
-            JOIN Students ON QuizLogs.student_id = Students.student_id
-            ORDER BY QuizLogs.timestamp DESC
-        '''
-        df = pd.read_sql_query(query, conn)
-    return df
 
 
 # Always ensure tables exist when this module is imported
