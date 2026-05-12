@@ -90,12 +90,12 @@ if "student_id" not in st.session_state:
             st.error(t("⚠️ Please enter your name!", "⚠️ Naam toh daalo! (Please enter your name)"))
             st.stop()
 
+        elif not clean_password:
+            st.error(t("⚠️ Please enter your password!", "⚠️ Password khali nahi chhod sakte! (Please enter your password)"))
+            st.stop()
+
         elif clean_password != password_input:
             st.error(t("⚠️ Password cannot contain leading or trailing spaces!", "⚠️ Password ke end or start m space nahi ho sakta! (Password can't contain space in end or start)"))
-            st.stop()
-            
-        elif not clean_password: 
-            st.error(t("⚠️ Please enter your password!", "⚠️ Password khali nahi chhod sakte! (Please enter your password)"))
             st.stop()
             
         else:
@@ -535,7 +535,7 @@ else:
                     "is_correct": None
                 })
 
-            # 3. Silently log the weak topic in the background for the Teacher Panel
+            # 3. Silently log the weak topic in the background for progress tracking
             # Skip if action is quiz/game — log_quiz_result() already logs to ConceptLogs
             topic = response_data.get("topic", "Unknown")
             status = response_data.get("status", "Unknown")

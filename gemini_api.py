@@ -1,8 +1,9 @@
+import os
 import requests
 import json
 
 # Using /api/chat for native multimodal (text + image) support
-OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL_NAME = "gemma4:e4b"
 
 def get_system_prompt(language="Hindi", mode="Fast Result"):

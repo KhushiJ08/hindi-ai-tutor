@@ -277,36 +277,6 @@ def get_student_progress(student_id):
     return {row[0]: row[1] for row in rows}
 
 
-def get_teacher_dashboard_data():
-    """Returns all concept logs joined with student names for the teacher panel."""
-    import pandas as pd
-
-    with sqlite3.connect(DB_NAME) as conn:
-        query = '''
-            SELECT Students.name, ConceptLogs.concept_name, ConceptLogs.status, ConceptLogs.timestamp 
-            FROM ConceptLogs
-            JOIN Students ON ConceptLogs.student_id = Students.student_id
-            ORDER BY ConceptLogs.timestamp DESC
-        '''
-        df = pd.read_sql_query(query, conn)
-    return df
-
-
-def get_all_students():
-    """Returns a list of all students with their streak info."""
-    import pandas as pd
-
-    with sqlite3.connect(DB_NAME) as conn:
-        query = '''
-            SELECT Students.name, Students.join_date,
-                   Streaks.current_streak, Streaks.highest_streak
-            FROM Students
-            JOIN Streaks ON Students.student_id = Streaks.student_id
-            ORDER BY Students.name
-        '''
-        df = pd.read_sql_query(query, conn)
-    return df
-
 
 def get_due_reviews(student_id):
     """Return concepts that are due for revision today or overdue."""
@@ -326,22 +296,7 @@ def get_due_reviews(student_id):
         ''', (student_id, today_str))
         return cursor.fetchall()
 
-def get_quiz_dashboard_data():
-    """Returns all quiz logs joined with student names for the teacher panel."""
-    import pandas as pd
 
-    with sqlite3.connect(DB_NAME) as conn:
-        query = '''
-            SELECT Students.name, QuizLogs.topic, QuizLogs.quiz_type, 
-                   QuizLogs.question, QuizLogs.student_answer, QuizLogs.correct_answer,
-                   CASE WHEN QuizLogs.is_correct = 1 THEN 'Correct ✅' ELSE 'Wrong ❌' END as result,
-                   QuizLogs.timestamp
-            FROM QuizLogs
-            JOIN Students ON QuizLogs.student_id = Students.student_id
-            ORDER BY QuizLogs.timestamp DESC
-        '''
-        df = pd.read_sql_query(query, conn)
-    return df
 
 def get_calendar_data(student_id):
     """Returns past daily activity and future revision dates for the calendar heatmap.
