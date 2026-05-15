@@ -29,10 +29,10 @@ else
     echo "Model gemma4:e4b already available."
 fi
 
-# Launch the Prajna server
+# Launch with Gunicorn (production WSGI server — no dev-server warning)
 echo "============================================"
 echo "   Prajna is running!"
-echo "   Open http://localhost:8080/login.html"
+echo "   Open http://localhost:8080"
 echo "============================================"
 
-python3 server.py
+gunicorn --workers 2 --bind 0.0.0.0:8080 --timeout 120 server:app

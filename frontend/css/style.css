@@ -415,7 +415,7 @@ input, textarea { font-family: inherit; }
   padding: 16px; background: linear-gradient(transparent, var(--bg) 30%);
 }
 .input-container {
-  max-width: 760px; margin: 0 auto;
+  max-width: 860px; margin: 0 auto;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 18px; padding: 14px 16px;
   box-shadow: 0 0 50px rgba(0,0,0,0.7), 0 0 0 1px rgba(79,142,247,0.05);
