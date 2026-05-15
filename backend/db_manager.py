@@ -23,11 +23,27 @@ def _hash_password(password):
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
+def _connect():
+    """Opens a production-grade SQLite connection.
+
+    - WAL mode  : allows concurrent reads while writing
+    - NORMAL sync: safe and faster than FULL
+    - FK enforcement: catches bad foreign-key inserts
+    - Row factory : rows accessible by column name OR index
+    """
+    conn = sqlite3.connect(DB_NAME, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
 def init_db():
     """Initializes the database with the required tables."""
     _migrate_old_db()
 
-    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
 
         # 1. Students Table (The Profile)
@@ -81,15 +97,37 @@ def init_db():
             )
         ''')
 
-        # Add password_hash column if upgrading from old schema
+        # 5. Conversations Table (chat session records)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS Conversations (
+                conversation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id      INTEGER NOT NULL,
+                title           TEXT    NOT NULL DEFAULT 'New Chat',
+                created_at      TEXT    NOT NULL,
+                updated_at      TEXT    NOT NULL,
+                FOREIGN KEY (student_id) REFERENCES Students(student_id)
+            )
+        ''')
+
+        # 6. Messages Table (per-conversation message store)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS Messages (
+                message_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL,
+                role            TEXT    NOT NULL,
+                content         TEXT    NOT NULL,
+                created_at      TEXT    NOT NULL,
+                FOREIGN KEY (conversation_id) REFERENCES Conversations(conversation_id)
+            )
+        ''')
+
+        # Schema migration for older installs
         try:
             cursor.execute("ALTER TABLE Students ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''")
             logger.info("Added password_hash column to Students table.")
         except sqlite3.OperationalError:
-            pass  # Column already exists
+            pass
 
-        # Add next_review_date and interval_days if upgrading from old schema
-        # Each ALTER is wrapped individually so a partial migration can't skip columns
         for _col_sql, _col_name in [
             ("ALTER TABLE ConceptLogs ADD COLUMN next_review_date TEXT", "next_review_date"),
             ("ALTER TABLE ConceptLogs ADD COLUMN interval_days INTEGER DEFAULT 0", "interval_days"),
@@ -98,7 +136,21 @@ def init_db():
                 cursor.execute(_col_sql)
                 logger.info("Added %s column to ConceptLogs table.", _col_name)
             except sqlite3.OperationalError:
-                pass  # Column already exists
+                pass
+
+        # Performance indexes
+        cursor.executescript('''
+            CREATE INDEX IF NOT EXISTS idx_concept_student
+                ON ConceptLogs(student_id, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_concept_name
+                ON ConceptLogs(student_id, concept_name, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_quiz_student_topic
+                ON QuizLogs(student_id, topic, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_conversations_student
+                ON Conversations(student_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_messages_convo
+                ON Messages(conversation_id, created_at);
+        ''')
 
         conn.commit()
     logger.info("Database initialized successfully.")
@@ -113,7 +165,7 @@ def login_and_update_streak(student_name, password=""):
     """
     pw_hash = _hash_password(password)
 
-    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
         today = date.today()
         today_str = today.isoformat()
@@ -236,7 +288,7 @@ def log_concept(student_id, concept_name):
     as a chat entry (not a quiz entry), which filters it out of progress stats
     and due-review queries.
     """
-    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
         timestamp = datetime.now().isoformat()
 
@@ -262,7 +314,7 @@ def log_quiz_result(student_id, topic, quiz_type, question, student_answer, corr
         correct_answer: The correct answer.
         is_correct: Boolean — True if student got it right.
     """
-    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
         timestamp = datetime.now().isoformat()
 
@@ -308,7 +360,7 @@ def get_student_progress(student_id):
     interval_days=0 and are intentionally excluded, because conversation alone
     cannot reliably judge a student's mastery of a topic.
     """
-    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
         cursor.execute('''
             WITH LatestQuizStatus AS (
@@ -333,7 +385,7 @@ def get_student_progress(student_id):
 def get_due_reviews(student_id):
     """Return concepts that are due for revision today or overdue."""
     today_str = date.today().isoformat()
-    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
         cursor.execute('''
             WITH LatestLogs AS (
@@ -357,7 +409,7 @@ def get_calendar_data(student_id):
     (QuizLogs), giving a true picture of days the student used the app — no
     Mastered/Learning/Struggling judgement involved.
     """
-    with sqlite3.connect(DB_NAME, timeout=10) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
 
         # Merge activity from chat sessions and quiz attempts into a single date set
@@ -374,3 +426,75 @@ def get_calendar_data(student_id):
 
         return [row[0] for row in cursor.fetchall()]
 
+
+# ─── Conversation Management ──────────────────────────────────────────────
+
+def create_conversation(student_id, title="New Chat"):
+    """Creates a new conversation session and returns its ID."""
+    now = datetime.now().isoformat()
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO Conversations (student_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            (student_id, title, now, now)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_conversations(student_id):
+    """Returns all conversations for a student, newest first."""
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT conversation_id, title, created_at, updated_at "
+            "FROM Conversations WHERE student_id = ? ORDER BY updated_at DESC",
+            (student_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_messages(conversation_id):
+    """Returns all messages in a conversation, oldest first."""
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT role, content, created_at FROM Messages "
+            "WHERE conversation_id = ? ORDER BY created_at",
+            (conversation_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def add_message(conversation_id, role, content):
+    """Saves a message and bumps the conversation's updated_at timestamp."""
+    now = datetime.now().isoformat()
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO Messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+            (conversation_id, role, content, now)
+        )
+        cursor.execute(
+            "UPDATE Conversations SET updated_at = ? WHERE conversation_id = ?",
+            (now, conversation_id)
+        )
+        conn.commit()
+
+
+def rename_conversation(conversation_id, title):
+    """Renames a conversation."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE Conversations SET title = ? WHERE conversation_id = ?",
+            (title, conversation_id)
+        )
+        conn.commit()
+
+
+def delete_conversation(conversation_id):
+    """Deletes a conversation and all its messages."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM Messages WHERE conversation_id = ?", (conversation_id,))
+        conn.execute("DELETE FROM Conversations WHERE conversation_id = ?", (conversation_id,))
+        conn.commit()

@@ -33,8 +33,22 @@
       </div>
     </div>
 
-    <!-- Badges -->
-    <div class="sidebar-section" id="badgesSection" style="display:none;">
+    <!-- Sidebar Tabs -->
+    <div class="sidebar-tabs">
+      <button class="stab stab--active" id="stabChats" onclick="switchSidebarTab('chats')" data-en="💬 Chats" data-hi="💬 चैट">💬 Chats</button>
+      <button class="stab" id="stabStats" onclick="switchSidebarTab('stats')" data-en="📊 Stats" data-hi="📊 आंकड़े">📊 Stats</button>
+    </div>
+
+    <!-- ── Chats Tab ── -->
+    <div id="tabChats">
+      <div class="new-chat-wrap">
+        <button class="new-chat-btn" id="newChatBtn" onclick="createNewChat()" data-en="＋ New Chat" data-hi="＋ नई चैट">＋ New Chat</button>
+      </div>
+      <div id="conversationList" class="convo-list"></div>
+    </div>
+
+    <!-- ── Stats Tab ── -->
+    <div id="tabStats" style="display:none;">
       <div class="sidebar-label" data-en="🏅 Badges" data-hi="🏅 बैज">🏅 Badges</div>
       <div class="badges-list" id="badgesList"></div>
     </div>
@@ -68,6 +82,7 @@
         <span><span class="cal-dot cal-dot--none"></span> <span data-en="None" data-hi="कोई नहीं">None</span></span>
       </div>
     </div>
+    </div><!-- /tabStats -->
 
     <!-- Language Toggle -->
     <div class="sidebar-section">

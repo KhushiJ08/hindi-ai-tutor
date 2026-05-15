@@ -665,7 +665,54 @@ input, textarea { font-family: inherit; }
 }
 .lang-slider.right { transform: translateX(100%); }
 
+/* ━━━ Sidebar Tabs ━━━ */
+.sidebar-tabs {
+  display: flex; gap: 4px; margin: 8px 0 4px;
+  background: #0d0d0d; border: 1px solid var(--border);
+  border-radius: var(--radius-pill); padding: 3px;
+}
+.stab {
+  flex: 1; padding: 7px 0; text-align: center;
+  font-family: var(--font-body); font-size: 13px;
+  color: var(--text-muted); border-radius: var(--radius-pill);
+  transition: color 0.2s; position: relative; z-index: 1;
+}
+.stab--active { color: #fff; background: var(--blue); border-radius: var(--radius-pill); }
+
+/* New Chat Button */
+.new-chat-wrap { padding: 10px 0 6px; }
+.new-chat-btn {
+  width: 100%; padding: 9px 12px; border-radius: 10px;
+  background: rgba(79,142,247,0.08); border: 1px dashed rgba(79,142,247,0.3);
+  color: var(--blue); font-size: 13px; font-family: var(--font-body);
+  text-align: left; transition: all 0.2s;
+}
+.new-chat-btn:hover { background: rgba(79,142,247,0.15); border-style: solid; }
+
+/* Conversation List */
+.convo-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; max-height: 340px; }
+.convo-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 10px; border-radius: 10px; cursor: pointer;
+  transition: background 0.15s; gap: 6px;
+}
+.convo-item:hover { background: var(--surface-2); }
+.convo-item--active { background: rgba(79,142,247,0.1); border: 1px solid rgba(79,142,247,0.2); }
+.convo-item__title {
+  flex: 1; font-size: 13px; color: var(--text-body);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.convo-item--active .convo-item__title { color: var(--text-head); }
+.convo-item__del {
+  font-size: 14px; color: var(--text-muted); opacity: 0;
+  transition: opacity 0.15s, color 0.15s; flex-shrink: 0;
+  background: none; border: none; padding: 2px 4px;
+}
+.convo-item:hover .convo-item__del { opacity: 1; }
+.convo-item__del:hover { color: #ef4444; }
+
 /* ━━━ Logout ━━━ */
+
 .sidebar-bottom { margin-top: auto; padding-top: 16px; }
 .logout-btn {
   width: 100%; padding: 10px; border-radius: 12px;

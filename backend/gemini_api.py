@@ -1,34 +1,35 @@
 import os
-import requests
 import json
+import logging
 
-# Using /api/chat for native multimodal (text + image) support
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
+from langchain_ollama import ChatOllama
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.output_parsers import JsonOutputParser
+
+logger = logging.getLogger(__name__)
+
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 MODEL_NAME = "gemma4:e4b"
 
-# ── Mode-specific Ollama generation options ──
-# Fast: tiny context, very few tokens → snappy 2-4 sentence replies
-# Slow: large context, many tokens → detailed step-by-step explanations
+# ── Mode-specific generation options ──
 MODE_OPTIONS = {
     "Fast Result": {
-        "num_ctx": 1024,      # small context window
-        "num_predict": 256,   # very short output
-        "temperature": 0.8,   # slightly creative
+        "num_ctx": 1024,
+        "num_predict": 256,
+        "temperature": 0.8,
         "top_p": 0.85,
         "repeat_penalty": 1.2,
     },
     "Long Think": {
-        "num_ctx": 8192,      # large context for full history
-        "num_predict": 4096,  # room for chain-of-thought + detailed answer
-        "temperature": 0.5,   # more focused
+        "num_ctx": 8192,
+        "num_predict": 4096,
+        "temperature": 0.5,
         "top_p": 0.95,
         "repeat_penalty": 1.1,
     },
 }
-MODE_TIMEOUT = {
-    "Fast Result": 60,   # seconds
-    "Long Think": 300,
-}
+MODE_TIMEOUT = {"Fast Result": 60, "Long Think": 300}
+
 
 def get_system_prompt(language="Hindi", mode="Fast Result"):
     
@@ -200,118 +201,107 @@ NOTE: quiz_data is ONLY required when action is "quiz" or "game". For other acti
 
 
 def get_response(user_input, chat_history=None, images=None, weak_topics=None, language="Hindi", mode="Fast Result"):
-    """Get a response from the AI tutor with conversation history and optional images.
+    """Get a tutor response using a LangChain LCEL chain: ChatOllama | JsonOutputParser.
 
     Args:
-        user_input: The student's text question.
-        chat_history: List of previous messages [{"role": "user"/"assistant", "content": "..."}].
-        images: Optional list of base64-encoded image strings to send for vision analysis.
-        weak_topics: Optional string listing topics the student needs to revise today.
-        language: The preferred language ("Hindi" or "English").
+        user_input:   Student's text question.
+        chat_history: List of prior messages [{role, content}].
+        images:       Optional base64-encoded image strings (vision).
+        weak_topics:  Optional string — spaced-repetition topics to prioritise.
+        language:     "Hindi" or "English".
+        mode:         "Fast Result" or "Long Think".
     """
-
-    # Build the messages array for /api/chat
-    messages = []
-
-    # System message with tutor instructions
-    messages.append({
-        "role": "system",
-        "content": get_system_prompt(language, mode)
-    })
-
-    # Include previous conversation turns
-    if chat_history:
-        for msg in chat_history:
-            role = msg.get("role", "")
-            if role in ("user", "assistant"):
-                messages.append({"role": role, "content": msg.get("content", "")})
-
-    # Build the current user message
-    # Inject weak topics if they exist and this is likely the first or a general message
-    weak_topic_context = ""
-    if weak_topics:
-        weak_topic_context = f"\n\n[SYSTEM NOTE - SPACED REPETITION: Student is weak at these topics: {weak_topics}. Please prioritize revising these topics by using action='revise'!]\n"
-
-    # Set up localized strings based on language
-    if language == "English":
-        prefix_msg = "Student's message: "
-        json_req = "Choose your best action and reply in JSON:"
-        photo_with_q = "The student sent this photo along with their question.\n\nStudent's question: "
-        photo_without_q = "The student sent this photo without a question. Analyze the photo and explain it."
-    else:
-        prefix_msg = "Student ka message: "
-        json_req = "Apna best action choose karo aur JSON mein jawab do:"
-        photo_with_q = "Student ne ye photo bheji hai apne question ke saath.\n\nStudent ka question: "
-        photo_without_q = "Student ne ye photo bheji hai bina kisi question ke. Photo ko analyse karo aur samjhao."
-
-    # If images are present, add context about them in the text prompt
-    if images:
-        if user_input:
-            current_content = f"{photo_with_q}{user_input}{weak_topic_context}\n\n{json_req}"
-        else:
-            current_content = f"{photo_without_q}{weak_topic_context}\n\n{json_req}"
-
-        current_message = {
-            "role": "user",
-            "content": current_content,
-            "images": images  # List of base64 strings
-        }
-    else:
-        current_message = {
-            "role": "user",
-            "content": f"{prefix_msg}{user_input}{weak_topic_context}\n\n{json_req}"
-        }
-
-    messages.append(current_message)
-
-    # Select mode-appropriate generation options and timeout
-    options = MODE_OPTIONS.get(mode, MODE_OPTIONS["Fast Result"])
+    opts    = MODE_OPTIONS.get(mode, MODE_OPTIONS["Fast Result"])
     timeout = MODE_TIMEOUT.get(mode, 60)
 
-    payload = {
-        "model": MODEL_NAME,
-        "messages": messages,
-        "stream": False,
-        "format": "json",  # This Ollama flag forces JSON output
-        "options": options,
-    }
+    # ── LangChain LLM + output parser chain ─────────────────────────────
+    llm = ChatOllama(
+        model=MODEL_NAME,
+        base_url=OLLAMA_BASE_URL,
+        format="json",
+        temperature=opts["temperature"],
+        num_ctx=opts["num_ctx"],
+        num_predict=opts["num_predict"],
+        model_kwargs={
+            "top_p":           opts["top_p"],
+            "repeat_penalty":  opts["repeat_penalty"],
+        },
+    )
+    chain = llm | JsonOutputParser()
 
+    # ── Build message list ───────────────────────────────────────────────
+    lc_messages = [SystemMessage(content=get_system_prompt(language, mode))]
+
+    if chat_history:
+        for msg in chat_history[-20:]:
+            role    = msg.get("role", "")
+            content = msg.get("content", "")
+            if not content:
+                continue
+            if role == "user":
+                lc_messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                lc_messages.append(AIMessage(content=content))
+
+    # ── Spaced-repetition injection ──────────────────────────────────────
+    weak_ctx = ""
+    if weak_topics:
+        weak_ctx = (
+            f"\n\n[SYSTEM NOTE — SPACED REPETITION: Student is weak at: {weak_topics}. "
+            "Prioritise revising these using action='revise'!]\n"
+        )
+
+    # ── Localised prompt strings ─────────────────────────────────────────
+    if language == "English":
+        prefix     = "Student's message: "
+        json_req   = "Choose your best action and reply in JSON:"
+        photo_with = "The student sent this photo with their question.\n\nStudent's question: "
+        photo_only = "The student sent this photo without a question. Analyse it and explain."
+    else:
+        prefix     = "Student ka message: "
+        json_req   = "Apna best action choose karo aur JSON mein jawab do:"
+        photo_with = "Student ne ye photo bheji hai apne question ke saath.\n\nStudent ka question: "
+        photo_only = "Student ne ye photo bheji hai bina kisi question ke. Photo ko analyse karo aur samjhao."
+
+    # ── Current-turn message (multimodal if images present) ─────────────
+    if images:
+        text_part = (
+            f"{photo_with}{user_input}{weak_ctx}\n\n{json_req}"
+            if user_input else
+            f"{photo_only}{weak_ctx}\n\n{json_req}"
+        )
+        content = [{"type": "text", "text": text_part}]
+        for img_b64 in images:
+            content.append({
+                "type":      "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
+            })
+        lc_messages.append(HumanMessage(content=content))
+    else:
+        lc_messages.append(
+            HumanMessage(content=f"{prefix}{user_input}{weak_ctx}\n\n{json_req}")
+        )
+
+    # ── Invoke chain ─────────────────────────────────────────────────────
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=timeout)
-        response.raise_for_status()
+        result = chain.invoke(lc_messages)
+        result.setdefault("action",         "explain")
+        result.setdefault("tutor_response", "")
+        result.setdefault("topic",          "General")
+        result.setdefault("status",         "Learning")
+        return result
 
-        # /api/chat returns response in message.content
-        raw_output = response.json()["message"]["content"]
-
-        # Clean up markdown formatting if the model wraps JSON in code fences
-        raw_output = raw_output.strip()
-        if raw_output.startswith("```"):
-            # Remove opening ```json or ``` fence line
-            raw_output = raw_output.split("\n", 1)[-1]
-            # Strip again before checking for closing fence (handles trailing newlines)
-            raw_output = raw_output.strip()
-            if raw_output.endswith("```"):
-                raw_output = raw_output[:-3].strip()
-
-        parsed_data = json.loads(raw_output)
-
-        # Ensure required fields have defaults
-        parsed_data.setdefault("action", "explain")
-        parsed_data.setdefault("tutor_response", "")
-        parsed_data.setdefault("topic", "General")
-        parsed_data.setdefault("status", "Learning")
-
-        return parsed_data
-
-    except requests.exceptions.ConnectionError:
-        error_msg = "⚠️ Unable to connect to Ollama server." if language == "English" else "⚠️ Ollama server se connect nahi ho paa raha."
-        return {"action": "clarify", "tutor_response": error_msg, "topic": "Error", "status": "Error"}
-    except requests.exceptions.Timeout:
-        error_msg = "⚠️ Server took too long. Photo analysis takes time — please try again." if language == "English" else "⚠️ Server ne bahut der laga di. Photo analyse mein time lagta hai — phir se try karo."
-        return {"action": "clarify", "tutor_response": error_msg, "topic": "Error", "status": "Error"}
-    except json.JSONDecodeError:
-        error_msg = "⚠️ Model returned invalid format. Please try again." if language == "English" else "⚠️ Model ne galat format diya. Phir se try karo."
-        return {"action": "clarify", "tutor_response": error_msg, "topic": "Error", "status": "Error"}
     except Exception as e:
-        error_msg = f"⚠️ Something went wrong: {e}" if language == "English" else f"⚠️ Kuch gadbad ho gayi: {e}"
-        return {"action": "clarify", "tutor_response": error_msg, "topic": "Error", "status": "Error"}
+        err = str(e).lower()
+        logger.error("LangChain chain error: %s", e)
+        if "connection" in err or "refused" in err:
+            msg = ("⚠️ Unable to connect to Ollama server." if language == "English"
+                   else "⚠️ Ollama server se connect nahi ho paa raha.")
+        elif "timeout" in err:
+            msg = ("⚠️ Server took too long. Please try again." if language == "English"
+                   else "⚠️ Server ne bahut der laga di. Phir se try karo.")
+        else:
+            msg = (f"⚠️ Something went wrong: {e}" if language == "English"
+                   else f"⚠️ Kuch gadbad ho gayi: {e}")
+        return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
+

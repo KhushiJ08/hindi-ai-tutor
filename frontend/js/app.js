@@ -7,6 +7,7 @@ let chatHistory = [];
 let uploadedImages = [];
 let currentMode = 'fast';
 let currentLanguage = localStorage.getItem('prajna_lang') || 'Hindi';
+let currentConversationId = null; // active conversation ID
 
 // ─── Auth Gate ───
 (function authGate() {
@@ -231,8 +232,97 @@ async function loadSidebarData() {
     renderCalendar(data.active_dates || []);
   } catch (e) { renderCalendar([]); }
 
+  // Load conversation list
+  await loadConversations(studentId);
+
   // Apply language
   updateUILanguage();
+}
+
+// ─── Sidebar Tab Switcher ───
+function switchSidebarTab(tab) {
+  document.getElementById('tabChats').style.display = tab === 'chats' ? '' : 'none';
+  document.getElementById('tabStats').style.display  = tab === 'stats' ? '' : 'none';
+  document.getElementById('stabChats').className = 'stab' + (tab === 'chats' ? ' stab--active' : '');
+  document.getElementById('stabStats').className  = 'stab' + (tab === 'stats' ? ' stab--active' : '');
+}
+
+// ─── Conversation History ───
+async function loadConversations(studentId) {
+  if (!studentId) return;
+  try {
+    const res = await fetch(`/api/conversations/${studentId}`);
+    const list = await res.json();
+    renderConversationList(list);
+  } catch(e) {}
+}
+
+function renderConversationList(list) {
+  const el = document.getElementById('conversationList');
+  if (!el) return;
+  if (!list || list.length === 0) {
+    el.innerHTML = `<div style="padding:10px 4px;font-size:12px;color:var(--text-muted)">${currentLanguage === 'Hindi' ? 'कोई पुरानी चैट नहीं' : 'No past chats yet'}</div>`;
+    return;
+  }
+  el.innerHTML = list.map(c => {
+    const active = c.conversation_id === currentConversationId ? ' convo-item--active' : '';
+    return `<div class="convo-item${active}" onclick="switchConversation(${c.conversation_id})">
+      <span class="convo-item__title">${escapeHtml(c.title)}</span>
+      <button class="convo-item__del" onclick="deleteConvoItem(event,${c.conversation_id})" title="Delete">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function createNewChat() {
+  const studentId = parseInt(localStorage.getItem('prajna_student_id'));
+  if (!studentId) return;
+  try {
+    const res = await fetch('/api/conversations', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({student_id: studentId})
+    });
+    const data = await res.json();
+    currentConversationId = data.conversation_id;
+    // Clear chat UI
+    chatHistory = [];
+    const msgs = document.getElementById('chatMessages');
+    if (msgs) msgs.innerHTML = '';
+    closeSidebar();
+    await loadConversations(studentId);
+  } catch(e) { console.error('createNewChat failed', e); }
+}
+
+async function switchConversation(conversationId) {
+  currentConversationId = conversationId;
+  const studentId = parseInt(localStorage.getItem('prajna_student_id'));
+  // Update active state in list
+  await loadConversations(studentId);
+  // Load messages
+  try {
+    const res = await fetch(`/api/conversations/${conversationId}/messages`);
+    const messages = await res.json();
+    chatHistory = messages.map(m => ({role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content}));
+    const msgs = document.getElementById('chatMessages');
+    if (msgs) {
+      msgs.innerHTML = '';
+      messages.forEach(m => addMessage(m.role === 'assistant' ? 'bot' : 'user', m.content));
+    }
+  } catch(e) {}
+  closeSidebar();
+}
+
+async function deleteConvoItem(e, conversationId) {
+  e.stopPropagation();
+  await fetch(`/api/conversations/${conversationId}`, {method:'DELETE'});
+  if (currentConversationId === conversationId) {
+    currentConversationId = null;
+    chatHistory = [];
+    const msgs = document.getElementById('chatMessages');
+    if (msgs) msgs.innerHTML = '';
+  }
+  const studentId = parseInt(localStorage.getItem('prajna_student_id'));
+  await loadConversations(studentId);
 }
 
 // ─── Mini Calendar ───
@@ -441,17 +531,32 @@ async function sendMessage() {
 
   showTyping();
 
+  // Auto-create a conversation on first message
+  const studentId = parseInt(localStorage.getItem('prajna_student_id')) || null;
+  if (studentId && !currentConversationId) {
+    try {
+      const cRes = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({student_id: studentId})
+      });
+      const cData = await cRes.json();
+      currentConversationId = cData.conversation_id;
+    } catch(e) {}
+  }
+
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: text,
-        history: chatHistory.slice(-20), // cap to last 10 turns to stay within context window
+        history: chatHistory.slice(-20),
         images: base64Images,
         mode: currentMode,
         language: currentLanguage,
-        student_id: parseInt(localStorage.getItem('prajna_student_id')) || null,
+        student_id: studentId,
+        conversation_id: currentConversationId,
       }),
     });
 
@@ -463,6 +568,10 @@ async function sendMessage() {
     const reply = data.tutor_response || data.error || 'No response received.';
 
     chatHistory.push({ role: 'assistant', content: reply });
+
+    // Refresh conversation list so auto-title appears immediately
+    if (studentId) loadConversations(studentId);
+
 
     // Action badge labels
     const actionLabels = {

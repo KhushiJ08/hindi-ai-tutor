@@ -10,7 +10,9 @@ from backend.gemini_api import get_response
 from backend.db_manager import (
     init_db, login_and_update_streak, log_concept,
     log_quiz_result, get_student_progress, get_due_reviews, get_calendar_data,
-    DB_NAME
+    DB_NAME,
+    create_conversation, get_conversations, get_messages, add_message,
+    rename_conversation, delete_conversation
 )
 import os
 import sqlite3
@@ -115,6 +117,23 @@ def chat():
             except Exception:
                 pass
 
+    # Persist messages to conversation history
+    conversation_id = data.get("conversation_id")
+    if student_id and conversation_id:
+        try:
+            reply_text = result.get("tutor_response", "")
+            if user_input:
+                add_message(conversation_id, "user", user_input)
+            add_message(conversation_id, "assistant", reply_text)
+            # Auto-title: use first 6 words of the opening message
+            convos = get_conversations(student_id)
+            current = next((c for c in convos if c["conversation_id"] == conversation_id), None)
+            if current and current["title"] == "New Chat" and user_input:
+                title = " ".join(user_input.split()[:6])[:60]
+                rename_conversation(conversation_id, title)
+        except Exception:
+            pass
+
     return jsonify(result)
 
 # ─── Quiz Result API ───
@@ -188,6 +207,45 @@ def calendar(student_id):
     """Returns the list of dates the student was active on the platform."""
     active_dates = get_calendar_data(student_id)
     return jsonify({"active_dates": active_dates})
+
+# ─── Conversation History API ───
+@app.route("/api/conversations", methods=["POST"])
+def new_conversation():
+    """Creates a new conversation. Expects: { student_id, title? }"""
+    data = request.get_json(force=True)
+    student_id = data.get("student_id")
+    if not student_id:
+        return jsonify({"error": "student_id required"}), 400
+    cid = create_conversation(student_id, data.get("title", "New Chat"))
+    return jsonify({"conversation_id": cid})
+
+
+@app.route("/api/conversations/<int:student_id>")
+def list_conversations(student_id):
+    """Returns all conversations for a student."""
+    return jsonify(get_conversations(student_id))
+
+
+@app.route("/api/conversations/<int:conversation_id>/messages")
+def conversation_messages(conversation_id):
+    """Returns all messages in a conversation."""
+    return jsonify(get_messages(conversation_id))
+
+
+@app.route("/api/conversations/<int:conversation_id>", methods=["DELETE"])
+def delete_convo(conversation_id):
+    """Deletes a conversation and all its messages."""
+    delete_conversation(conversation_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/conversations/<int:conversation_id>", methods=["PATCH"])
+def rename_convo(conversation_id):
+    """Renames a conversation. Expects: { title }"""
+    data = request.get_json(force=True)
+    rename_conversation(conversation_id, data.get("title", "Chat"))
+    return jsonify({"ok": True})
+
 
 # ─── Health check ───
 @app.route("/api/health")
