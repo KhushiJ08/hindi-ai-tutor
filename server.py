@@ -9,7 +9,8 @@ from flask_cors import CORS
 from backend.gemini_api import get_response
 from backend.db_manager import (
     init_db, login_and_update_streak, log_concept,
-    log_quiz_result, get_student_progress, get_due_reviews, get_calendar_data
+    log_quiz_result, get_student_progress, get_due_reviews, get_calendar_data,
+    DB_NAME
 )
 import os
 import sqlite3
@@ -41,14 +42,15 @@ def login():
     """
     data = request.get_json(force=True)
     name = (data.get("name") or "").strip()
-    password = (data.get("password") or "").strip()
+    raw_password = data.get("password") or ""
 
     if not name:
         return jsonify({"error": "Name is required"}), 400
-    if not password:
+    if not raw_password:
         return jsonify({"error": "Password is required"}), 400
-    if password != data.get("password", ""):
+    if raw_password != raw_password.strip():
         return jsonify({"error": "Password cannot have leading/trailing spaces"}), 400
+    password = raw_password.strip()
 
     try:
         student_id, streak = login_and_update_streak(name, password)
@@ -105,7 +107,7 @@ def chat():
     )
 
     # Log concept if not a quiz/game action
-    if student_id and result.get("topic") != "Error":
+    if student_id and result.get("status") != "Error":
         action = result.get("action", "explain")
         if action not in ("quiz", "game"):
             try:
@@ -154,7 +156,7 @@ def progress(student_id):
 
     # Get streak
     try:
-        with sqlite3.connect("students.db") as conn:
+        with sqlite3.connect(DB_NAME, timeout=10) as conn:
             cur = conn.cursor()
             cur.execute("SELECT current_streak, highest_streak FROM Streaks WHERE student_id = ?", (student_id,))
             row = cur.fetchone()
@@ -183,14 +185,9 @@ def progress(student_id):
 # ─── Calendar API ───
 @app.route("/api/calendar/<int:student_id>")
 def calendar(student_id):
-    """Returns calendar data: active days + future review dates."""
-    past_data, future_data = get_calendar_data(student_id)
-    # Convert active dates to a simple list of date strings
-    active_dates = list(past_data.keys())
-    return jsonify({
-        "active_dates": active_dates,
-        "future_reviews": future_data,
-    })
+    """Returns the list of dates the student was active on the platform."""
+    active_dates = get_calendar_data(student_id)
+    return jsonify({"active_dates": active_dates})
 
 # ─── Health check ───
 @app.route("/api/health")
@@ -199,5 +196,5 @@ def health():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    print(f"\n  Prajna server running on http://localhost:{port}/login.html\n")
+    print(f"\n  Prajna server running on http://localhost:{port}/\n")
     app.run(host="0.0.0.0", port=port, debug=False)

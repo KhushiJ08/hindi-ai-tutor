@@ -222,10 +222,9 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
     # Include previous conversation turns
     if chat_history:
         for msg in chat_history:
-            if msg["role"] == "user":
-                messages.append({"role": "user", "content": msg["content"]})
-            elif msg["role"] == "assistant":
-                messages.append({"role": "assistant", "content": msg["content"]})
+            role = msg.get("role", "")
+            if role in ("user", "assistant"):
+                messages.append({"role": role, "content": msg.get("content", "")})
 
     # Build the current user message
     # Inject weak topics if they exist and this is likely the first or a general message
@@ -287,11 +286,12 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
         # Clean up markdown formatting if the model wraps JSON in code fences
         raw_output = raw_output.strip()
         if raw_output.startswith("```"):
-            # Remove opening ```json or ``` and closing ```
-            raw_output = raw_output.split("\n", 1)[-1]  # Remove first line (```json)
-            if raw_output.endswith("```"):
-                raw_output = raw_output[:-3]
+            # Remove opening ```json or ``` fence line
+            raw_output = raw_output.split("\n", 1)[-1]
+            # Strip again before checking for closing fence (handles trailing newlines)
             raw_output = raw_output.strip()
+            if raw_output.endswith("```"):
+                raw_output = raw_output[:-3].strip()
 
         parsed_data = json.loads(raw_output)
 

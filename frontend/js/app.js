@@ -24,7 +24,7 @@ let currentLanguage = localStorage.getItem('prajna_lang') || 'Hindi';
     const av = document.getElementById('navAvatar');
     if (av) {
       const parts = name.trim().split(/\s+/);
-      av.textContent = (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+      av.textContent = parts[0] ? (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase() : '?';
     }
     // Load sidebar data
     if (!onLoginPage) {
@@ -99,7 +99,6 @@ async function handleSignin(e) {
 
   if (!email.value.trim()) { showFieldError(email, 'si-email-err', 'Name is required'); return; }
   if (!pass.value) { showFieldError(pass, 'si-password-err', 'Password is required'); return; }
-  if (pass.value.length < 1) { showFieldError(pass, 'si-password-err', 'Password is required'); return; }
 
   try {
     const res = await fetch('/api/login', {
@@ -202,7 +201,7 @@ async function loadSidebarData() {
   if (sName) sName.textContent = name;
   if (sAvatar) {
     const parts = name.trim().split(/\s+/);
-    sAvatar.textContent = (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+    sAvatar.textContent = parts[0] ? (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase() : '?';
   }
 
   // Fetch progress
@@ -449,7 +448,7 @@ async function sendMessage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: text,
-        history: chatHistory,
+        history: chatHistory.slice(-20), // cap to last 10 turns to stay within context window
         images: base64Images,
         mode: currentMode,
         language: currentLanguage,
@@ -506,7 +505,7 @@ function appendMessage(type, text, images, badge) {
   }
 
   const badgeHtml = badge ? `<span class="action-badge">${badge}</span>` : '';
-  const ttsHtml = type === 'bot' ? `<button class="tts-btn" onclick="speak(this.closest('.msg').querySelector('.msg-bubble').textContent)" ${currentLanguage === 'English' ? '' : ''}>${t('🔊 Listen', '🔊 सुनो')}</button>` : '';
+  const ttsHtml = type === 'bot' ? `<button class="tts-btn" onclick="speak(this.closest('.msg').querySelector('.msg-bubble').textContent)">${t('🔊 Listen', '🔊 सुनो')}</button>` : '';
 
   if (type === 'user') {
     msgDiv.innerHTML = `<div>${imgsHtml}<div class="msg-bubble">${escapeHtml(text)}</div><div class="msg-time" style="text-align:right;">${time}</div></div>`;
@@ -546,7 +545,8 @@ function checkAnswer(btn, correct, explanation, topic, quizType, question) {
   const card = btn.closest('.quiz-card');
   const buttons = card.querySelectorAll('.quiz-option');
   const feedback = card.querySelector('.quiz-feedback');
-  const selected = btn.textContent.trim().substring(2); // Remove letter prefix
+  const letter = btn.querySelector('.quiz-letter');
+  const selected = btn.textContent.replace(letter ? letter.textContent : '', '').trim(); // Strip letter badge properly
 
   buttons.forEach(b => { b.disabled = true; if (b.dataset.correct === 'true') b.classList.add('correct'); });
 
