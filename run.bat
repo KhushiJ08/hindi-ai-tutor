@@ -26,14 +26,20 @@ if %ERRORLEVEL% NEQ 0 (
     echo      Ollama is already running.
 )
 
-:: Pull the model if not already downloaded
+:: Pull the model only if not already cached
 echo [4/4] Ensuring model is available...
-ollama pull gemma4:e4b
+ollama list 2>NUL | find /I "gemma4:e4b" >NUL
+if %ERRORLEVEL% NEQ 0 (
+    echo      Pulling model gemma4:e4b (first time setup — this may take a while^)...
+    ollama pull gemma4:e4b
+) else (
+    echo      Model gemma4:e4b already available.
+)
 
 :: Launch the Prajna server
 echo ============================================
 echo    Prajna is running!
-echo    Open http://localhost:8080/login.html
+echo    Open http://localhost:8080
 echo ============================================
 python server.py
 
