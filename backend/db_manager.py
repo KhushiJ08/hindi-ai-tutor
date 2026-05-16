@@ -6,8 +6,9 @@ from datetime import date, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-DB_NAME = "students.db"
-OLD_DB_NAME = "tutor.db"
+# Use absolute paths so the DB is always found regardless of CWD
+DB_NAME = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "students.db"))
+OLD_DB_NAME = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tutor.db"))
 
 
 def _migrate_old_db():
@@ -22,11 +23,27 @@ def _hash_password(password):
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
+def _connect():
+    """Opens a production-grade SQLite connection.
+
+    - WAL mode  : allows concurrent reads while writing
+    - NORMAL sync: safe and faster than FULL
+    - FK enforcement: catches bad foreign-key inserts
+    - Row factory : rows accessible by column name OR index
+    """
+    conn = sqlite3.connect(DB_NAME, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
 def init_db():
     """Initializes the database with the required tables."""
     _migrate_old_db()
 
-    with sqlite3.connect(DB_NAME) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
 
         # 1. Students Table (The Profile)
@@ -80,20 +97,60 @@ def init_db():
             )
         ''')
 
-        # Add password_hash column if upgrading from old schema
+        # 5. Conversations Table (chat session records)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS Conversations (
+                conversation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id      INTEGER NOT NULL,
+                title           TEXT    NOT NULL DEFAULT 'New Chat',
+                created_at      TEXT    NOT NULL,
+                updated_at      TEXT    NOT NULL,
+                FOREIGN KEY (student_id) REFERENCES Students(student_id)
+            )
+        ''')
+
+        # 6. Messages Table (per-conversation message store)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS Messages (
+                message_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL,
+                role            TEXT    NOT NULL,
+                content         TEXT    NOT NULL,
+                created_at      TEXT    NOT NULL,
+                FOREIGN KEY (conversation_id) REFERENCES Conversations(conversation_id)
+            )
+        ''')
+
+        # Schema migration for older installs
         try:
             cursor.execute("ALTER TABLE Students ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''")
             logger.info("Added password_hash column to Students table.")
         except sqlite3.OperationalError:
-            pass  # Column already exists
+            pass
 
-        # Add next_review_date and interval_days if upgrading from old schema
-        try:
-            cursor.execute("ALTER TABLE ConceptLogs ADD COLUMN next_review_date TEXT")
-            cursor.execute("ALTER TABLE ConceptLogs ADD COLUMN interval_days INTEGER DEFAULT 0")
-            logger.info("Added next_review_date and interval_days columns to ConceptLogs table.")
-        except sqlite3.OperationalError:
-            pass  # Columns already exist
+        for _col_sql, _col_name in [
+            ("ALTER TABLE ConceptLogs ADD COLUMN next_review_date TEXT", "next_review_date"),
+            ("ALTER TABLE ConceptLogs ADD COLUMN interval_days INTEGER DEFAULT 0", "interval_days"),
+        ]:
+            try:
+                cursor.execute(_col_sql)
+                logger.info("Added %s column to ConceptLogs table.", _col_name)
+            except sqlite3.OperationalError:
+                pass
+
+        # Performance indexes
+        cursor.executescript('''
+            CREATE INDEX IF NOT EXISTS idx_concept_student
+                ON ConceptLogs(student_id, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_concept_name
+                ON ConceptLogs(student_id, concept_name, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_quiz_student_topic
+                ON QuizLogs(student_id, topic, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_conversations_student
+                ON Conversations(student_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_messages_convo
+                ON Messages(conversation_id, created_at);
+        ''')
 
         conn.commit()
     logger.info("Database initialized successfully.")
@@ -108,7 +165,7 @@ def login_and_update_streak(student_name, password=""):
     """
     pw_hash = _hash_password(password)
 
-    with sqlite3.connect(DB_NAME) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
         today = date.today()
         today_str = today.isoformat()
@@ -163,7 +220,7 @@ def login_and_update_streak(student_name, password=""):
                 conn.commit()
                 return student_id, 1
 
-            last_active = date.fromisoformat(streak_data[0])
+            last_active = date.fromisoformat(streak_data[0]) if streak_data[0] else date.today()
             current_streak = streak_data[1]
             highest_streak = streak_data[2]
 
@@ -194,7 +251,9 @@ def _calculate_next_interval(status, prev_interval=0):
         elif prev_interval == 3: return 7
         elif prev_interval == 7: return 14
         else: return 30
-    return 1
+    else:
+        logger.warning("_calculate_next_interval: unknown status '%s', defaulting to 1 day.", status)
+        return 1
 
 def _get_latest_interval(cursor, student_id, concept_name):
     cursor.execute('''
@@ -206,23 +265,41 @@ def _get_latest_interval(cursor, student_id, concept_name):
     return row[0] if row and row[0] is not None else 0
 
 
-def log_concept(student_id, concept_name, status):
-    """Saves a record of the topic the student is learning."""
-    with sqlite3.connect(DB_NAME) as conn:
+def _get_recent_quiz_results(cursor, student_id, topic, limit=2):
+    """Returns the last `limit` quiz results for a topic (1=correct, 0=wrong), most recent first."""
+    cursor.execute('''
+        SELECT is_correct FROM QuizLogs
+        WHERE student_id = ? AND topic = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+    ''', (student_id, topic, limit))
+    return [row[0] for row in cursor.fetchall()]
+
+
+def log_concept(student_id, concept_name):
+    """Records that a topic was discussed in a chat session.
+
+    Deliberately does NOT assign a mastery status — conversation alone cannot
+    determine whether a student has mastered a topic.  Only quiz results
+    (log_quiz_result) set meaningful Mastered / Struggling / Learning statuses.
+
+    A neutral 'Learning' placeholder is stored so the calendar can count this
+    date as an active day.  interval_days=0 and next_review_date=NULL mark it
+    as a chat entry (not a quiz entry), which filters it out of progress stats
+    and due-review queries.
+    """
+    with _connect() as conn:
         cursor = conn.cursor()
         timestamp = datetime.now().isoformat()
-        
-        prev_interval = _get_latest_interval(cursor, student_id, concept_name)
-        new_interval = _calculate_next_interval(status, prev_interval)
-        next_review_date = (date.today() + timedelta(days=new_interval)).isoformat()
 
         cursor.execute('''
-            INSERT INTO ConceptLogs (student_id, concept_name, status, timestamp, next_review_date, interval_days)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (student_id, concept_name, status, timestamp, next_review_date, new_interval))
+            INSERT INTO ConceptLogs
+                (student_id, concept_name, status, timestamp, next_review_date, interval_days)
+            VALUES (?, ?, 'Learning', ?, NULL, 0)
+        ''', (student_id, concept_name, timestamp))
 
         conn.commit()
-    logger.info("Logged concept: student=%d, topic=%s, status=%s, next_review=%s", student_id, concept_name, status, next_review_date)
+    logger.info("Logged concept discussion: student=%d, topic=%s", student_id, concept_name)
 
 
 def log_quiz_result(student_id, topic, quiz_type, question, student_answer, correct_answer, is_correct):
@@ -237,9 +314,12 @@ def log_quiz_result(student_id, topic, quiz_type, question, student_answer, corr
         correct_answer: The correct answer.
         is_correct: Boolean — True if student got it right.
     """
-    with sqlite3.connect(DB_NAME) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
         timestamp = datetime.now().isoformat()
+
+        # Fetch the previous quiz results BEFORE inserting the current one
+        prev_results = _get_recent_quiz_results(cursor, student_id, topic, limit=2)
 
         # Log the quiz attempt
         cursor.execute('''
@@ -247,30 +327,54 @@ def log_quiz_result(student_id, topic, quiz_type, question, student_answer, corr
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (student_id, topic, quiz_type, question, student_answer, correct_answer, int(is_correct), timestamp))
 
-        # Update mastery in ConceptLogs based on quiz result
-        new_status = "Mastered" if is_correct else "Struggling"
-        
+        # Streak-based mastery (Option A):
+        # 2+ consecutive correct → Mastered
+        # 2+ consecutive wrong   → Struggling
+        # Anything else          → Learning (single answer never swings the status)
+        recent = [int(is_correct)] + prev_results  # most recent first
+        if len(recent) >= 2 and all(r == 1 for r in recent[:2]):
+            new_status = "Mastered"
+        elif len(recent) >= 2 and all(r == 0 for r in recent[:2]):
+            new_status = "Struggling"
+        else:
+            new_status = "Learning"
+
         prev_interval = _get_latest_interval(cursor, student_id, topic)
         new_interval = _calculate_next_interval(new_status, prev_interval)
         next_review_date = (date.today() + timedelta(days=new_interval)).isoformat()
-        
+
         cursor.execute('''
             INSERT INTO ConceptLogs (student_id, concept_name, status, timestamp, next_review_date, interval_days)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (student_id, topic, new_status, timestamp, next_review_date, new_interval))
 
         conn.commit()
-    logger.info("Quiz logged: student=%d, topic=%s, correct=%s", student_id, topic, is_correct)
+    logger.info("Quiz logged: student=%d, topic=%s, correct=%s, new_status=%s", student_id, topic, is_correct, new_status)
 
 
 def get_student_progress(student_id):
-    """Returns mastered/learning/struggling counts for a student."""
-    with sqlite3.connect(DB_NAME) as conn:
+    """Returns mastered/learning/struggling counts based solely on quiz performance.
+
+    Only ConceptLogs rows with interval_days > 0 are considered — those are
+    exclusively written by log_quiz_result().  Chat-discussion rows have
+    interval_days=0 and are intentionally excluded, because conversation alone
+    cannot reliably judge a student's mastery of a topic.
+    """
+    with _connect() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT status, COUNT(*) as count
-            FROM ConceptLogs
-            WHERE student_id = ?
+            WITH LatestQuizStatus AS (
+                SELECT concept_name, status,
+                       ROW_NUMBER() OVER(
+                           PARTITION BY concept_name
+                           ORDER BY timestamp DESC
+                       ) AS rn
+                FROM ConceptLogs
+                WHERE student_id = ? AND interval_days > 0
+            )
+            SELECT status, COUNT(*) AS count
+            FROM LatestQuizStatus
+            WHERE rn = 1
             GROUP BY status
         ''', (student_id,))
         rows = cursor.fetchall()
@@ -281,7 +385,7 @@ def get_student_progress(student_id):
 def get_due_reviews(student_id):
     """Return concepts that are due for revision today or overdue."""
     today_str = date.today().isoformat()
-    with sqlite3.connect(DB_NAME) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
         cursor.execute('''
             WITH LatestLogs AS (
@@ -299,49 +403,98 @@ def get_due_reviews(student_id):
 
 
 def get_calendar_data(student_id):
-    """Returns past daily activity and future revision dates for the calendar heatmap.
-    
-    Returns:
-        past_data: dict mapping date_string -> {concept_name: final_status_for_day}
-        future_data: dict mapping date_string -> [list of concepts due]
+    """Returns a sorted list of distinct dates the student was active on the platform.
+
+    Activity is counted from both chat interactions (ConceptLogs) and quiz attempts
+    (QuizLogs), giving a true picture of days the student used the app — no
+    Mastered/Learning/Struggling judgement involved.
     """
-    from collections import defaultdict
-    with sqlite3.connect(DB_NAME) as conn:
+    with _connect() as conn:
         cursor = conn.cursor()
-        
-        # 1. Past Data: Get the final status of each concept studied on each specific day
+
+        # Merge activity from chat sessions and quiz attempts into a single date set
         cursor.execute('''
-            SELECT date(timestamp) as log_date, concept_name, status
+            SELECT DISTINCT date(timestamp) AS active_date
             FROM ConceptLogs
             WHERE student_id = ?
-            ORDER BY timestamp ASC
-        ''', (student_id,))
-        
-        daily_concepts = defaultdict(dict)
-        for row in cursor.fetchall():
-            d = row[0]
-            c = row[1]
-            s = row[2]
-            daily_concepts[d][c] = s
-            
-        # 2. Future Data: Get all active future review dates
-        # Use ROW_NUMBER to get the most recent log per concept
-        cursor.execute('''
-            SELECT concept_name, next_review_date
-            FROM (
-                SELECT concept_name, next_review_date,
-                       ROW_NUMBER() OVER(PARTITION BY concept_name ORDER BY timestamp DESC) as rn
-                FROM ConceptLogs
-                WHERE student_id = ?
-            ) WHERE rn = 1 AND next_review_date IS NOT NULL AND next_review_date > date('now')
-        ''', (student_id,))
-        
-        future_reviews = defaultdict(list)
-        for row in cursor.fetchall():
-            concept = row[0]
-            # Handle potential time parts in next_review_date if any
-            rev_date = row[1][:10] 
-            future_reviews[rev_date].append(concept)
-            
-        return dict(daily_concepts), dict(future_reviews)
+            UNION
+            SELECT DISTINCT date(timestamp) AS active_date
+            FROM QuizLogs
+            WHERE student_id = ?
+            ORDER BY active_date
+        ''', (student_id, student_id))
 
+        return [row[0] for row in cursor.fetchall()]
+
+
+# ─── Conversation Management ──────────────────────────────────────────────
+
+def create_conversation(student_id, title="New Chat"):
+    """Creates a new conversation session and returns its ID."""
+    now = datetime.now().isoformat()
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO Conversations (student_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            (student_id, title, now, now)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_conversations(student_id):
+    """Returns all conversations for a student, newest first."""
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT conversation_id, title, created_at, updated_at "
+            "FROM Conversations WHERE student_id = ? ORDER BY updated_at DESC",
+            (student_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_messages(conversation_id):
+    """Returns all messages in a conversation, oldest first."""
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT role, content, created_at FROM Messages "
+            "WHERE conversation_id = ? ORDER BY created_at",
+            (conversation_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def add_message(conversation_id, role, content):
+    """Saves a message and bumps the conversation's updated_at timestamp."""
+    now = datetime.now().isoformat()
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO Messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+            (conversation_id, role, content, now)
+        )
+        cursor.execute(
+            "UPDATE Conversations SET updated_at = ? WHERE conversation_id = ?",
+            (now, conversation_id)
+        )
+        conn.commit()
+
+
+def rename_conversation(conversation_id, title):
+    """Renames a conversation."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE Conversations SET title = ? WHERE conversation_id = ?",
+            (title, conversation_id)
+        )
+        conn.commit()
+
+
+def delete_conversation(conversation_id):
+    """Deletes a conversation and all its messages."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM Messages WHERE conversation_id = ?", (conversation_id,))
+        conn.execute("DELETE FROM Conversations WHERE conversation_id = ?", (conversation_id,))
+        conn.commit()

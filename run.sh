@@ -21,13 +21,18 @@ if ! pgrep -x "ollama" > /dev/null; then
     sleep 5
 fi
 
-# Pull the model if not already downloaded
-ollama pull gemma4:e4b
+# Pull the model only if not already cached
+if ! ollama list 2>/dev/null | grep -q "gemma4:e4b"; then
+    echo "Pulling model gemma4:e4b (first time setup — this may take a while)..."
+    ollama pull gemma4:e4b
+else
+    echo "Model gemma4:e4b already available."
+fi
 
-# Launch the Prajna server
+# Launch with Gunicorn (production WSGI server — no dev-server warning)
 echo "============================================"
 echo "   Prajna is running!"
-echo "   Open http://localhost:8080/login.html"
+echo "   Open http://localhost:8080"
 echo "============================================"
 
-python3 server.py
+gunicorn --workers 2 --bind 0.0.0.0:8080 --timeout 120 server:app

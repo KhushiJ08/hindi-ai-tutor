@@ -22,7 +22,7 @@
       <button class="sidebar-close" id="sidebarClose" title="Close">✕</button>
     </div>
 
-    <!-- User Info -->
+    <!-- User Info + Streak -->
     <div class="sidebar-section">
       <div class="sidebar-user" id="sidebarUser">
         <div class="nav-avatar" id="sidebarAvatar">U</div>
@@ -33,49 +33,39 @@
       </div>
     </div>
 
-    <!-- Badges -->
-    <div class="sidebar-section" id="badgesSection" style="display:none;">
-      <div class="sidebar-label">🏅 Badges</div>
-      <div class="badges-list" id="badgesList"></div>
+    <!-- New Chat + Chat History -->
+    <div class="sidebar-section" style="flex:1; overflow-y:auto;">
+      <div class="new-chat-wrap">
+        <button class="new-chat-btn" id="newChatBtn" onclick="createNewChat()" data-en="＋ New Chat" data-hi="＋ नई चैट">＋ New Chat</button>
+      </div>
+      <div class="save-toggle-wrap">
+        <label class="save-toggle-label" data-en="💾 Save chat history" data-hi="💾 चैट सेव करो">💾 Save chat history</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="saveChatToggle" checked onchange="toggleSaveChats(this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div id="conversationList" class="convo-list"></div>
     </div>
 
-    <!-- Progress -->
-    <div class="sidebar-section">
-      <div class="sidebar-label" data-en="📊 Progress" data-hi="📊 प्रगति">📊 Progress</div>
-      <div class="progress-stats" id="progressStats">
-        <div class="stat-item stat-mastered">
-          <span class="stat-num" id="statMastered">0</span>
-          <span class="stat-label" data-en="Mastered" data-hi="पारंगत">Mastered</span>
-        </div>
-        <div class="stat-item stat-learning">
-          <span class="stat-num" id="statLearning">0</span>
-          <span class="stat-label" data-en="Learning" data-hi="सीख रहे">Learning</span>
-        </div>
-        <div class="stat-item stat-struggling">
-          <span class="stat-num" id="statStruggling">0</span>
-          <span class="stat-label" data-en="Struggling" data-hi="कठिन">Struggling</span>
+    <!-- Calendar (collapsible) -->
+    <div class="sidebar-section sidebar-collapsible">
+      <button class="sidebar-collapse-btn" onclick="toggleSection(this)" data-en="📅 Calendar" data-hi="📅 कैलेंडर">📅 Calendar</button>
+      <div class="sidebar-collapse-body" style="display:none;">
+        <div class="mini-calendar" id="miniCalendar"></div>
+        <div class="cal-legend">
+          <span><span class="cal-dot cal-dot--active"></span> <span data-en="Active" data-hi="सक्रिय">Active</span></span>
+          <span><span class="cal-dot cal-dot--today"></span> <span data-en="Today" data-hi="आज">Today</span></span>
+          <span><span class="cal-dot cal-dot--none"></span> <span data-en="None" data-hi="कोई नहीं">None</span></span>
         </div>
       </div>
     </div>
 
-    <!-- Calendar -->
-    <div class="sidebar-section">
-      <div class="sidebar-label" data-en="📅 Learning Calendar" data-hi="📅 कैलेंडर">📅 Learning Calendar</div>
-      <div class="mini-calendar" id="miniCalendar"></div>
-      <div class="cal-legend">
-        <span><span class="cal-dot cal-dot--active"></span> <span data-en="Active" data-hi="सक्रिय">Active</span></span>
-        <span><span class="cal-dot cal-dot--today"></span> <span data-en="Today" data-hi="आज">Today</span></span>
-        <span><span class="cal-dot cal-dot--none"></span> <span data-en="None" data-hi="कोई नहीं">None</span></span>
-      </div>
-    </div>
-
-    <!-- Language Toggle -->
-    <div class="sidebar-section">
-      <div class="sidebar-label">🌐 Language / भाषा</div>
-      <div class="lang-toggle" id="langToggle">
-        <button class="lang-btn active" data-lang="Hindi" onclick="setLanguage('Hindi')">हिन्दी</button>
-        <button class="lang-btn" data-lang="English" onclick="setLanguage('English')">English</button>
-        <div class="lang-slider" id="langSlider"></div>
+    <!-- Badges (collapsible) -->
+    <div class="sidebar-section sidebar-collapsible" id="badgesSection" style="display:none;">
+      <button class="sidebar-collapse-btn" onclick="toggleSection(this)" data-en="🏅 Badges" data-hi="🏅 बैज">🏅 Badges</button>
+      <div class="sidebar-collapse-body" style="display:none;">
+        <div class="badges-list" id="badgesList"></div>
       </div>
     </div>
 
@@ -101,7 +91,7 @@
       </a>
     </div>
     <div class="nav-right">
-      <a href="#chat-zone" class="nav-link">Chat</a>
+      <a href="#chat-zone" class="nav-link" data-en="Chat" data-hi="चैट">Chat</a>
       <a href="#" class="nav-link" data-en="About" data-hi="जानकारी">About</a>
       <div class="nav-lang" id="navLangToggle">
         <button class="lang-btn active" data-lang="Hindi" onclick="setLanguage('Hindi')">हिन्दी</button>
@@ -118,14 +108,14 @@
     <!-- ZONE 1 — HERO -->
     <section class="hero-zone" id="heroZone">
       <div class="hero-zone-left">
-        <p class="hero-label fade-up">w i s d o m ,&nbsp;&nbsp; s p o k e n .</p>
+        <p class="hero-label fade-up" data-en="your AI, your edge." data-hi="तुम्हारा AI, तुम्हारी ताकत।">your AI, your edge.</p>
 
         <div class="hero-heading fade-up">
           <div class="line-hindi">नमस्ते !</div>
           <div class="line-eng">I'm Prajna.</div>
         </div>
 
-        <p class="hero-tagline fade-up">ज् ञ ा न&nbsp;&nbsp; क ी&nbsp;&nbsp; भ ा ष ा&nbsp;&nbsp; ब ो ल ो</p>
+        <p class="hero-tagline fade-up" data-en="Ask anything. Learn everything." data-hi="कुछ भी पूछो, सब कुछ सीखो।">Ask anything. Learn everything.</p>
 
         <div class="cta-row fade-up">
           <a href="#chat-zone" class="cta-primary" data-en="Start Learning" data-hi="सीखना शुरू करो">Start Learning</a>
@@ -148,11 +138,12 @@
         <div class="msg msg--bot">
           <div class="msg-avatar">प्र</div>
           <div>
-            <div class="msg-bubble">
-              <span class="hindi">नमस्ते!</span> I'm Prajna, your AI Hindi tutor. Ask me anything about Hindi — grammar, vocabulary, pronunciation, or just practice a conversation! 🙏
-            </div>
-            <button class="tts-btn" onclick="speak(this.closest('.msg').querySelector('.msg-bubble').textContent)" data-en="🔊 Listen" data-hi="🔊 सुनो">🔊 Listen</button>
-            <div class="msg-time">Just now</div>
+            <div class="msg-bubble"
+              data-en="Hey there! 🙏 I'm Prajna, your AI study buddy. Ask me anything — math, science, history, coding, Hindi, or any subject you're working on. Let's learn together!"
+              data-hi="नमस्ते! 🙏 मैं प्रज्ञा हूँ, तुम्हारा AI study partner। कुछ भी पूछो — गणित, विज्ञान, इतिहास, कोडिंग, हिन्दी, या कोई भी विषय। चलो साथ में सीखते हैं!"
+            >Hey there! 🙏 I'm Prajna, your AI study buddy. Ask me anything — math, science, history, coding, Hindi, or any subject you're working on. Let's learn together!</div>
+            <button class="tts-btn" onclick="speak(this.closest('.msg').querySelector('.msg-bubble').textContent)" data-en="🔊 Listen" data-hi="🔊 सुनो">🔊 सुनो</button>
+            <div class="msg-time" data-en="Just now" data-hi="अभी">Just now</div>
           </div>
         </div>
       </div>

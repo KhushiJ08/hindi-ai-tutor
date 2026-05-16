@@ -1,34 +1,84 @@
 import os
-import requests
 import json
+import logging
+import requests
 
-# Using /api/chat for native multimodal (text + image) support
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
+logger = logging.getLogger(__name__)
+
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 MODEL_NAME = "gemma4:e4b"
 
-# ── Mode-specific Ollama generation options ──
-# Fast: tiny context, very few tokens → snappy 2-4 sentence replies
-# Slow: large context, many tokens → detailed step-by-step explanations
+# ── Mode-specific generation options ──
 MODE_OPTIONS = {
     "Fast Result": {
-        "num_ctx": 1024,      # small context window
-        "num_predict": 256,   # very short output
-        "temperature": 0.8,   # slightly creative
+        "num_ctx": 1024,
+        "num_predict": 256,
+        "temperature": 0.8,
         "top_p": 0.85,
-        "repeat_penalty": 1.2,
+        "repeat_penalty": 1.1
     },
     "Long Think": {
-        "num_ctx": 8192,      # large context for full history
-        "num_predict": 4096,  # room for chain-of-thought + detailed answer
-        "temperature": 0.5,   # more focused
-        "top_p": 0.95,
-        "repeat_penalty": 1.1,
-    },
+        "num_ctx": 2048,
+        "num_predict": 512,
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "repeat_penalty": 1.15
+    }
 }
-MODE_TIMEOUT = {
-    "Fast Result": 60,   # seconds
-    "Long Think": 300,
-}
+MODE_TIMEOUT = {"Fast Result": 60, "Long Think": 300}
+
+
+def generate_title(user_message, language="Hindi"):
+    """Ask Ollama to generate a short descriptive title for a conversation.
+
+    Uses a minimal context window and low token budget so it's near-instant.
+    Falls back to a truncated version of the message if Ollama fails.
+    """
+    if language == "English":
+        prompt = (
+            f'Create a short, descriptive title (3 to 5 words) for a tutoring session '
+            f'that begins with this student message: "{user_message}"\n'
+            f'Reply ONLY with JSON: {{"title": "Your Title Here"}}'
+        )
+    else:
+        prompt = (
+            f'Is tutoring conversation ke liye ek chhota, spasht title banao (3 se 5 shabd) '
+            f'jo is student ke message se shuru hoti hai: "{user_message}"\n'
+            f'Sirf JSON mein jawab do: {{"title": "Aapka Title Yahan"}}'
+        )
+
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "format": "json",
+        "options": {
+            "temperature": 0.3,
+            "num_ctx": 512,
+            "num_predict": 64
+        }
+    }
+
+    url = f"{OLLAMA_BASE_URL}/api/chat"
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        resp.raise_for_status()
+        raw_out = resp.json()["message"]["content"].strip()
+        
+        # Handle markdown fences around JSON
+        if raw_out.startswith("```"):
+            raw_out = raw_out.split("\n", 1)[-1]
+            if raw_out.endswith("```"):
+                raw_out = raw_out[:-3]
+            raw_out = raw_out.strip()
+            
+        data = json.loads(raw_out)
+        title = data.get("title", "").strip()
+        return title[:80] if title else user_message[:60]
+    except Exception as e:
+        logger.warning("generate_title failed: %s", e)
+        return user_message[:60]
+
 
 def get_system_prompt(language="Hindi", mode="Fast Result"):
     
@@ -52,32 +102,35 @@ def get_system_prompt(language="Hindi", mode="Fast Result"):
 """
 
     if language == "English":
-        return f"""You are an ADAPTIVE English tutor who teaches rural India's students in simple English.
-You are not just a chatbot — you are a SMART TUTOR AGENT who DECIDEs what to do next after every message.
+        return f"""You are Prajna, a friendly and smart AI study buddy who helps students learn any subject.
+You can have normal conversations AND teach. You are warm, approachable, and natural.
 
 === YOUR ACTIONS (Choose one action in every response) ===
 
-1. "explain" → Explain the concept with a VILLAGE LIFE ANALOGY.
-   Example: To explain Fractions say "Like sharing a roti among 4 people in the village, each gets 1/4."
+1. "chat" → Normal friendly conversation. Use this for greetings, casual talk, or when the student is not asking an academic question.
+   Example: If student says "hi how are you?" → respond warmly and ask what they'd like to learn.
 
-2. "quiz" → Give the student a quick question to test understanding.
+2. "explain" → Explain an academic concept clearly with examples.
+   Example: To explain Fractions say "Like sharing a pizza among 4 friends, each gets 1/4."
+
+3. "quiz" → Give the student a quick question to test understanding.
    When giving a quiz, you must provide question, options, and correct_answer in quiz_data.
 
-3. "revise" → Re-explain a weak topic (when the student is struggling).
+4. "revise" → Re-explain a weak topic (when the student is struggling).
    Remember previous mistakes and explain the topic again in an easier way.
 
-4. "game" → Play a fun learning game (word puzzle, fill-in-the-blank, story-based question).
+5. "game" → Play a fun learning game (word puzzle, fill-in-the-blank, story-based question).
    The game should be engaging and topic-related. Provide game data in quiz_data.
 
-5. "clarify" → If the student's question is unclear, politely ask what they mean.
-   Do not guess — understand first, then answer.
+6. "clarify" → ONLY use this if the student asked an academic question that is genuinely unclear.
+   Do NOT use clarify for greetings or casual messages.
 
 === DECISION MAKING RULES ===
-{length_rule}{think_rule}- Choose the BEST action based on the student's message, past conversation, and performance.
-- If student asks a new topic → "explain" (with village analogy)
+{length_rule}{think_rule}- IMPORTANT: If the student is just saying hi, greeting you, or making casual conversation, ALWAYS use action="chat" and respond naturally. Do NOT start teaching random topics.
+- If student asks about an academic topic → "explain" (with examples)
 - If student answers correctly → "quiz" or "game" (increase challenge)
 - If student answers wrong repeatedly → "revise" (explain again differently)
-- If student's message is unclear → "clarify"
+- If student's academic question is genuinely unclear → "clarify"
 - After every 3-4 explanations, give a "quiz" or "game" — do not let it get boring!
 - Tell what to do next in "next_action_suggestion" (optional but helpful).
 - SPACED REPETITION: At the beginning of conversation, I will give you list of weak topics and due revisions. Prioritize 'revise' action on them before teaching new topics.
@@ -109,7 +162,7 @@ After explaining a topic (2-3 times), automatically switch to quiz to test the s
 IMPORTANT: You must respond ONLY with a valid JSON object. No markdown, no code fences.
 NEVER use LaTeX math notation (no $, $$, \frac, \times, \rightarrow, etc). Instead use plain Unicode symbols like ×, ÷, →, ², ³, ½, π, etc. Write math in simple text like "F = m1 × m2 / r²" not "$F = \\frac{{m_1 \\times m_2}}{{r^2}}$".
 {{
-{thought_process_json}    "action": "explain | quiz | revise | game | clarify",
+{thought_process_json}    "action": "chat | explain | quiz | revise | game | clarify",
     "tutor_response": "Your friendly English response here (always use simple English)",
     "topic": "The core concept in 1-2 words (e.g., Fractions, Photosynthesis)",
     "status": "Choose one: Struggling, Learning, or Mastered",
@@ -125,32 +178,35 @@ NEVER use LaTeX math notation (no $, $$, \frac, \times, \rightarrow, etc). Inste
 
 NOTE: quiz_data is ONLY required when action is "quiz" or "game". For other actions, omit it or set to null."""
     else:
-        return f"""Tum ek ADAPTIVE Hindi tutor ho jo rural India ke students ko simple Hindi mein padhata hai.
-Tum sirf ek chatbot nahi ho — tum ek SMART TUTOR AGENT ho jo har message ke baad DECIDE karta hai ki aage kya karna chahiye.
+        return f"""Tum Prajna ho, ek friendly aur smart AI study buddy jo students ko kisi bhi subject mein help karta hai.
+Tum normal baatcheet bhi kar sakte ho AUR padha bhi sakte ho. Tum warm, friendly, aur natural ho.
 
 === TERE ACTIONS (Har response mein ek action choose karo) ===
 
-1. "explain" → Concept samjhao with a VILLAGE LIFE ANALOGY.
-   Example: Fractions samjhane ke liye bolo "Jaise gaon mein ek roti ko 4 logon mein baantein, toh har ek ko 1/4 milta hai."
+1. "chat" → Normal friendly baatcheet. Jab student sirf hello bol raha ho, casual baat kar raha ho, ya koi academic question nahi puch raha ho tab ye use karo.
+   Example: Agar student bole "hi kaise ho?" → warmly jawab do aur pucho ki kya seekhna hai.
 
-2. "quiz" → Student ko ek quick question do to test understanding.
+2. "explain" → Academic concept samjhao examples ke saath.
+   Example: Fractions samjhane ke liye bolo "Jaise pizza ko 4 logon mein baantein, toh har ek ko 1/4 milta hai."
+
+3. "quiz" → Student ko ek quick question do to test understanding.
    Quiz dete waqt quiz_data mein question, options, aur correct_answer dena zaroori hai.
 
-3. "revise" → Weak topic dubara samjhao (jab student struggle kar raha ho).
+4. "revise" → Weak topic dubara samjhao (jab student struggle kar raha ho).
    Pehle ki galtiyon ko yaad rakho aur topic phir se aasaan tarike se samjhao.
 
-4. "game" → Fun learning game khelo (word puzzle, fill-in-the-blank, story-based question).
+5. "game" → Fun learning game khelo (word puzzle, fill-in-the-blank, story-based question).
    Game engaging aur topic-related hona chahiye. quiz_data mein game data do.
 
-5. "clarify" → Agar student ka question unclear hai, toh politely puchho ki kya matlab hai.
-   Mat guess karo — pehle samjho, phir jawab do.
+6. "clarify" → SIRF tab use karo jab student ka academic question genuinely unclear ho.
+   Greetings ya casual messages ke liye clarify KABHI mat use karo.
 
 === DECISION MAKING RULES ===
-{length_rule}{think_rule}- Student ka message, pichli baatcheet, aur performance dekh ke BEST action choose karo.
-- Agar student ne naya topic pucha → "explain" (with village analogy)
+{length_rule}{think_rule}- IMPORTANT: Agar student sirf hi, hello, ya casual baat kar raha hai, toh HAMESHA action="chat" use karo aur naturally jawab do. Random topics padhana SHURU MAT KARO.
+- Agar student academic topic ke baare mein puche → "explain" (examples ke saath)
 - Agar student ne sahi jawab diya → "quiz" ya "game" (challenge badhao)
 - Agar student galat jawab de raha hai baar baar → "revise" (dobara samjhao, alag tarike se)
-- Agar student ka message unclear hai → "clarify"
+- Agar student ka academic question genuinely unclear hai → "clarify"
 - Har 3-4 explanations ke baad ek "quiz" ya "game" do — boring mat hone do!
 - "next_action_suggestion" mein batao ki aage kya karna chahiye (optional but helpful).
 - SPACED REPETITION: At the beginning of conversation, I will give you list of weak topics and due revisions. Prioritize 'revise' action on them before teaching new topics.
@@ -182,7 +238,7 @@ After explaining a topic (2-3 times), automatically switch to quiz to test the s
 IMPORTANT: You must respond ONLY with a valid JSON object. No markdown, no code fences.
 NEVER use LaTeX math notation (no $, $$, \frac, \times, \rightarrow, etc). Instead use plain Unicode symbols like ×, ÷, →, ², ³, ½, π, etc. Write math in simple text like "F = m1 × m2 / r²" not "$F = \\frac{{m_1 \\times m_2}}{{r^2}}$".
 {{
-{thought_process_json}    "action": "explain | quiz | revise | game | clarify",
+{thought_process_json}    "action": "chat | explain | quiz | revise | game | clarify",
     "tutor_response": "Your friendly Hindi response here (always use simple Hindi)",
     "topic": "The core concept in 1-2 words (e.g., Fractions, Photosynthesis)",
     "status": "Choose one: Struggling, Learning, or Mastered",
@@ -200,118 +256,118 @@ NOTE: quiz_data is ONLY required when action is "quiz" or "game". For other acti
 
 
 def get_response(user_input, chat_history=None, images=None, weak_topics=None, language="Hindi", mode="Fast Result"):
-    """Get a response from the AI tutor with conversation history and optional images.
+    """Get a tutor response directly using the Ollama REST API.
 
     Args:
-        user_input: The student's text question.
-        chat_history: List of previous messages [{"role": "user"/"assistant", "content": "..."}].
-        images: Optional list of base64-encoded image strings to send for vision analysis.
-        weak_topics: Optional string listing topics the student needs to revise today.
-        language: The preferred language ("Hindi" or "English").
+        user_input:   Student's text question.
+        chat_history: List of prior messages [{role, content}].
+        images:       Optional base64-encoded image strings (vision).
+        weak_topics:  Optional string — spaced-repetition topics to prioritise.
+        language:     "Hindi" or "English".
+        mode:         "Fast Result" or "Long Think".
     """
-
-    # Build the messages array for /api/chat
-    messages = []
-
-    # System message with tutor instructions
-    messages.append({
-        "role": "system",
-        "content": get_system_prompt(language, mode)
-    })
-
-    # Include previous conversation turns
-    if chat_history:
-        for msg in chat_history:
-            if msg["role"] == "user":
-                messages.append({"role": "user", "content": msg["content"]})
-            elif msg["role"] == "assistant":
-                messages.append({"role": "assistant", "content": msg["content"]})
-
-    # Build the current user message
-    # Inject weak topics if they exist and this is likely the first or a general message
-    weak_topic_context = ""
-    if weak_topics:
-        weak_topic_context = f"\n\n[SYSTEM NOTE - SPACED REPETITION: Student is weak at these topics: {weak_topics}. Please prioritize revising these topics by using action='revise'!]\n"
-
-    # Set up localized strings based on language
-    if language == "English":
-        prefix_msg = "Student's message: "
-        json_req = "Choose your best action and reply in JSON:"
-        photo_with_q = "The student sent this photo along with their question.\n\nStudent's question: "
-        photo_without_q = "The student sent this photo without a question. Analyze the photo and explain it."
-    else:
-        prefix_msg = "Student ka message: "
-        json_req = "Apna best action choose karo aur JSON mein jawab do:"
-        photo_with_q = "Student ne ye photo bheji hai apne question ke saath.\n\nStudent ka question: "
-        photo_without_q = "Student ne ye photo bheji hai bina kisi question ke. Photo ko analyse karo aur samjhao."
-
-    # If images are present, add context about them in the text prompt
-    if images:
-        if user_input:
-            current_content = f"{photo_with_q}{user_input}{weak_topic_context}\n\n{json_req}"
-        else:
-            current_content = f"{photo_without_q}{weak_topic_context}\n\n{json_req}"
-
-        current_message = {
-            "role": "user",
-            "content": current_content,
-            "images": images  # List of base64 strings
-        }
-    else:
-        current_message = {
-            "role": "user",
-            "content": f"{prefix_msg}{user_input}{weak_topic_context}\n\n{json_req}"
-        }
-
-    messages.append(current_message)
-
-    # Select mode-appropriate generation options and timeout
-    options = MODE_OPTIONS.get(mode, MODE_OPTIONS["Fast Result"])
+    url = f"{OLLAMA_BASE_URL}/api/chat"
+    
+    opts = MODE_OPTIONS.get(mode, MODE_OPTIONS["Fast Result"])
     timeout = MODE_TIMEOUT.get(mode, 60)
+    
+    # ── Build message list ───────────────────────────────────────────────
+    messages = [{"role": "system", "content": get_system_prompt(language, mode)}]
 
+    if chat_history:
+        for msg in chat_history[-20:]:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if content and role in ["user", "assistant"]:
+                messages.append({"role": role, "content": content})
+
+    # ── Spaced-repetition injection ──────────────────────────────────────
+    # Only inject weak topics if the student's message looks like a real
+    # academic question (not just "hi", "hello", casual chat).
+    weak_ctx = ""
+    if weak_topics and user_input and len(user_input.strip()) > 15:
+        weak_ctx = (
+            f"\n\n[NOTE: Student has weak topics: {weak_topics}. "
+            "When appropriate, gently suggest revising these — but ONLY if the "
+            "student is asking about academics. Do NOT force revision during casual chat.]\n"
+        )
+
+    # ── Localised prompt strings ─────────────────────────────────────────
+    if language == "English":
+        prefix     = "Student's message: "
+        json_req   = "Choose your best action and reply in JSON:"
+        photo_with = "The student sent this photo with their question.\n\nStudent's question: "
+        photo_only = "The student sent this photo without a question. Analyse it and explain."
+    else:
+        prefix     = "Student ka message: "
+        json_req   = "Apna best action choose karo aur JSON mein jawab do:"
+        photo_with = "Student ne ye photo bheji hai apne question ke saath.\n\nStudent ka question: "
+        photo_only = "Student ne ye photo bheji hai bina kisi question ke. Photo ko analyse karo aur samjhao."
+
+    # ── Current-turn message (multimodal if images present) ─────────────
+    if images:
+        text_part = (
+            f"{photo_with}{user_input}{weak_ctx}\n\n{json_req}"
+            if user_input else
+            f"{photo_only}{weak_ctx}\n\n{json_req}"
+        )
+        # Ollama expects list of base64 strings in 'images' field for chat API
+        messages.append({
+            "role": "user",
+            "content": text_part,
+            "images": images
+        })
+    else:
+        messages.append({
+            "role": "user",
+            "content": f"{prefix}{user_input}{weak_ctx}\n\n{json_req}"
+        })
+
+    # ── Invoke API ───────────────────────────────────────────────────────
     payload = {
         "model": MODEL_NAME,
         "messages": messages,
         "stream": False,
-        "format": "json",  # This Ollama flag forces JSON output
-        "options": options,
+        "format": "json",
+        "options": opts
     }
-
+    
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=timeout)
-        response.raise_for_status()
-
-        # /api/chat returns response in message.content
-        raw_output = response.json()["message"]["content"]
-
-        # Clean up markdown formatting if the model wraps JSON in code fences
-        raw_output = raw_output.strip()
-        if raw_output.startswith("```"):
-            # Remove opening ```json or ``` and closing ```
-            raw_output = raw_output.split("\n", 1)[-1]  # Remove first line (```json)
-            if raw_output.endswith("```"):
-                raw_output = raw_output[:-3]
-            raw_output = raw_output.strip()
-
-        parsed_data = json.loads(raw_output)
-
-        # Ensure required fields have defaults
-        parsed_data.setdefault("action", "explain")
-        parsed_data.setdefault("tutor_response", "")
-        parsed_data.setdefault("topic", "General")
-        parsed_data.setdefault("status", "Learning")
-
-        return parsed_data
-
+        resp = requests.post(url, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        raw_out = resp.json()["message"]["content"].strip()
+        
+        # ── Robust Markdown Stripping ──
+        if raw_out.startswith("```"):
+            raw_out = raw_out.split("\n", 1)[-1]
+            if raw_out.endswith("```"):
+                raw_out = raw_out[:-3]
+            raw_out = raw_out.strip()
+            
+        data = json.loads(raw_out)
+        
+        # Ensure critical keys exist
+        data.setdefault("action", "explain")
+        data.setdefault("tutor_response", "")
+        data.setdefault("topic", "General")
+        data.setdefault("status", "Learning")
+        return data
+        
     except requests.exceptions.ConnectionError:
-        error_msg = "⚠️ Unable to connect to Ollama server." if language == "English" else "⚠️ Ollama server se connect nahi ho paa raha."
-        return {"action": "clarify", "tutor_response": error_msg, "topic": "Error", "status": "Error"}
+        msg = ("⚠️ Unable to connect to Ollama server." if language == "English"
+               else "⚠️ Ollama server se connect nahi ho paa raha.")
+        return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
     except requests.exceptions.Timeout:
-        error_msg = "⚠️ Server took too long. Photo analysis takes time — please try again." if language == "English" else "⚠️ Server ne bahut der laga di. Photo analyse mein time lagta hai — phir se try karo."
-        return {"action": "clarify", "tutor_response": error_msg, "topic": "Error", "status": "Error"}
-    except json.JSONDecodeError:
-        error_msg = "⚠️ Model returned invalid format. Please try again." if language == "English" else "⚠️ Model ne galat format diya. Phir se try karo."
-        return {"action": "clarify", "tutor_response": error_msg, "topic": "Error", "status": "Error"}
+        msg = ("⚠️ Server took too long. Please try again." if language == "English"
+               else "⚠️ Server ne bahut der laga di. Phir se try karo.")
+        return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
+    except json.JSONDecodeError as e:
+        logger.error("JSON parse error from Ollama. Raw output: %s", raw_out)
+        msg = ("⚠️ Model returned invalid format. Please try again." if language == "English"
+               else "⚠️ Model ne galat format diya. Phir se try karo.")
+        return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
     except Exception as e:
-        error_msg = f"⚠️ Something went wrong: {e}" if language == "English" else f"⚠️ Kuch gadbad ho gayi: {e}"
-        return {"action": "clarify", "tutor_response": error_msg, "topic": "Error", "status": "Error"}
+        logger.error("Error communicating with Ollama: %s", e)
+        msg = (f"⚠️ Something went wrong: {e}" if language == "English"
+               else f"⚠️ Kuch gadbad ho gayi: {e}")
+        return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}

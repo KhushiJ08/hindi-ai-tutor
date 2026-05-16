@@ -7,6 +7,8 @@ let chatHistory = [];
 let uploadedImages = [];
 let currentMode = 'fast';
 let currentLanguage = localStorage.getItem('prajna_lang') || 'Hindi';
+let currentConversationId = null; // active conversation ID
+let saveChatsEnabled = localStorage.getItem('prajna_save_chats') !== 'false'; // default: on
 
 // ─── Auth Gate ───
 (function authGate() {
@@ -24,7 +26,7 @@ let currentLanguage = localStorage.getItem('prajna_lang') || 'Hindi';
     const av = document.getElementById('navAvatar');
     if (av) {
       const parts = name.trim().split(/\s+/);
-      av.textContent = (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+      av.textContent = parts[0] ? (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase() : '?';
     }
     // Load sidebar data
     if (!onLoginPage) {
@@ -41,16 +43,15 @@ function t(en, hi) {
 function updateUILanguage() {
   document.querySelectorAll('[data-en]').forEach(el => {
     if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') return; // skip form elements
-    el.textContent = currentLanguage === 'English' ? el.dataset.en : el.dataset.hi;
+    el.innerHTML = currentLanguage === 'English' ? el.dataset.en : el.dataset.hi;
   });
 
-  // Switch textarea placeholder
-  const ta = document.getElementById('chatTextarea');
-  if (ta) {
-    ta.placeholder = currentLanguage === 'English'
-      ? (ta.dataset.placeholderEn || 'Ask Prajna...')
-      : (ta.dataset.placeholderHi || 'प्रज्ञा से पूछो...');
-  }
+  // Switch ALL element placeholders (inputs, textareas) that have data-placeholder-en
+  document.querySelectorAll('[data-placeholder-en]').forEach(el => {
+    el.placeholder = currentLanguage === 'English'
+      ? (el.dataset.placeholderEn || '')
+      : (el.dataset.placeholderHi || el.dataset.placeholderEn || '');
+  });
 
   // Re-calculate mode slider after text width changes
   setTimeout(() => setMode(currentMode), 50);
@@ -99,7 +100,6 @@ async function handleSignin(e) {
 
   if (!email.value.trim()) { showFieldError(email, 'si-email-err', 'Name is required'); return; }
   if (!pass.value) { showFieldError(pass, 'si-password-err', 'Password is required'); return; }
-  if (pass.value.length < 1) { showFieldError(pass, 'si-password-err', 'Password is required'); return; }
 
   try {
     const res = await fetch('/api/login', {
@@ -191,6 +191,11 @@ if (hamburger) hamburger.addEventListener('click', toggleSidebar);
 if (sidebarClose) sidebarClose.addEventListener('click', toggleSidebar);
 if (overlay) overlay.addEventListener('click', toggleSidebar);
 
+function closeSidebar() {
+  if (sidebar) sidebar.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
+}
+
 async function loadSidebarData() {
   const studentId = localStorage.getItem('prajna_student_id');
   const name = localStorage.getItem('prajna_name') || 'User';
@@ -202,7 +207,7 @@ async function loadSidebarData() {
   if (sName) sName.textContent = name;
   if (sAvatar) {
     const parts = name.trim().split(/\s+/);
-    sAvatar.textContent = (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+    sAvatar.textContent = parts[0] ? (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase() : '?';
   }
 
   // Fetch progress
@@ -213,9 +218,7 @@ async function loadSidebarData() {
     const sStreak = document.getElementById('sidebarStreak');
     if (sStreak) sStreak.textContent = `🔥 ${data.streak} Days`;
 
-    document.getElementById('statMastered').textContent = data.mastered;
-    document.getElementById('statLearning').textContent = data.learning;
-    document.getElementById('statStruggling').textContent = data.struggling;
+
 
     // Badges
     const badgesSection = document.getElementById('badgesSection');
@@ -233,8 +236,119 @@ async function loadSidebarData() {
     renderCalendar(data.active_dates || []);
   } catch (e) { renderCalendar([]); }
 
+  // Load conversation list
+  await loadConversations(studentId);
+
   // Apply language
   updateUILanguage();
+}
+
+// ─── Collapsible Sections ───
+function toggleSection(btn) {
+  const body = btn.nextElementSibling;
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    btn.classList.add('open');
+  } else {
+    body.style.display = 'none';
+    btn.classList.remove('open');
+  }
+}
+
+// ─── Save Chats Toggle ───
+function toggleSaveChats(enabled) {
+  saveChatsEnabled = enabled;
+  localStorage.setItem('prajna_save_chats', enabled ? 'true' : 'false');
+  const list = document.getElementById('conversationList');
+  if (list) list.style.display = enabled ? '' : 'none';
+  if (!enabled) {
+    currentConversationId = null; // stop saving to current conversation
+  }
+}
+
+// Restore toggle state on page load
+window.addEventListener('DOMContentLoaded', () => {
+  const toggle = document.getElementById('saveChatToggle');
+  if (toggle) {
+    toggle.checked = saveChatsEnabled;
+    toggleSaveChats(saveChatsEnabled);
+  }
+});
+async function loadConversations(studentId) {
+  if (!studentId) return;
+  try {
+    const res = await fetch(`/api/conversations/${studentId}`);
+    const list = await res.json();
+    renderConversationList(list);
+  } catch(e) {}
+}
+
+function renderConversationList(list) {
+  const el = document.getElementById('conversationList');
+  if (!el) return;
+  if (!list || list.length === 0) {
+    el.innerHTML = `<div style="padding:10px 4px;font-size:12px;color:var(--text-muted)">${currentLanguage === 'Hindi' ? 'कोई पुरानी चैट नहीं' : 'No past chats yet'}</div>`;
+    return;
+  }
+  el.innerHTML = list.map(c => {
+    const active = c.conversation_id === currentConversationId ? ' convo-item--active' : '';
+    return `<div class="convo-item${active}" onclick="switchConversation(${c.conversation_id})">
+      <span class="convo-item__title">${escapeHtml(c.title)}</span>
+      <button class="convo-item__del" onclick="deleteConvoItem(event,${c.conversation_id})" title="Delete">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function createNewChat() {
+  const studentId = parseInt(localStorage.getItem('prajna_student_id'));
+  if (!studentId) return;
+  try {
+    const res = await fetch('/api/conversations', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({student_id: studentId})
+    });
+    const data = await res.json();
+    currentConversationId = data.conversation_id;
+    // Clear chat UI
+    chatHistory = [];
+    const msgs = document.getElementById('chatMessages');
+    if (msgs) msgs.innerHTML = '';
+    closeSidebar();
+    await loadConversations(studentId);
+  } catch(e) { console.error('createNewChat failed', e); }
+}
+
+async function switchConversation(conversationId) {
+  currentConversationId = conversationId;
+  const studentId = parseInt(localStorage.getItem('prajna_student_id'));
+  // Update active state in list
+  await loadConversations(studentId);
+  // Load messages
+  try {
+    const res = await fetch(`/api/conversations/${conversationId}/messages`);
+    const messages = await res.json();
+    chatHistory = messages.map(m => ({role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content}));
+    const msgs = document.getElementById('chatMessages');
+    if (msgs) {
+      msgs.innerHTML = '';
+      messages.forEach(m => appendMessage(m.role === 'assistant' ? 'bot' : 'user', m.content));
+    }
+  } catch(e) {}
+  closeSidebar();
+}
+
+async function deleteConvoItem(e, conversationId) {
+  e.stopPropagation();
+  await fetch(`/api/conversations/${conversationId}`, {method:'DELETE'});
+  if (currentConversationId === conversationId) {
+    currentConversationId = null;
+    chatHistory = [];
+    const msgs = document.getElementById('chatMessages');
+    if (msgs) msgs.innerHTML = '';
+  }
+  const studentId = parseInt(localStorage.getItem('prajna_student_id'));
+  await loadConversations(studentId);
 }
 
 // ─── Mini Calendar ───
@@ -443,17 +557,32 @@ async function sendMessage() {
 
   showTyping();
 
+  // Auto-create a conversation on first message (only if save is on)
+  const studentId = parseInt(localStorage.getItem('prajna_student_id')) || null;
+  if (saveChatsEnabled && studentId && !currentConversationId) {
+    try {
+      const cRes = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({student_id: studentId})
+      });
+      const cData = await cRes.json();
+      currentConversationId = cData.conversation_id;
+    } catch(e) {}
+  }
+
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: text,
-        history: chatHistory,
+        history: chatHistory.slice(-20),
         images: base64Images,
         mode: currentMode,
         language: currentLanguage,
-        student_id: parseInt(localStorage.getItem('prajna_student_id')) || null,
+        student_id: studentId,
+        conversation_id: saveChatsEnabled ? currentConversationId : null,
       }),
     });
 
@@ -466,26 +595,15 @@ async function sendMessage() {
 
     chatHistory.push({ role: 'assistant', content: reply });
 
-    // Action badge labels
-    const actionLabels = {
-      explain: t('💡 Explain', '💡 समझाओ'),
-      quiz: t('❓ Quiz Time', '❓ क्विज़'),
-      revise: t('🔄 Revision', '🔄 दोहराई'),
-      game: t('🎮 Fun Game', '🎮 खेल'),
-      clarify: t('🤔 Clarification', '🤔 स्पष्टीकरण'),
-    };
-    const badge = actionLabels[action] || '';
+    // Refresh conversation list so auto-title appears immediately
+    if (saveChatsEnabled && studentId) loadConversations(studentId);
 
-    appendMessage('bot', reply, null, badge);
+
+    appendMessage('bot', reply);
 
     // Quiz card
     if (data.quiz_data && (action === 'quiz' || action === 'game')) {
       appendQuiz(data.quiz_data, data.topic);
-    }
-
-    // Topic tracking toast
-    if (data.topic && data.topic !== 'Error' && action !== 'quiz' && action !== 'game') {
-      showToast(`🧠 Tracked: ${data.topic} (${data.status || 'Learning'})`);
     }
 
   } catch (err) {
@@ -505,8 +623,8 @@ function appendMessage(type, text, images, badge) {
     imgsHtml = images.map(img => `<img src="${img.data}" class="msg-img" alt="attached">`).join('');
   }
 
-  const badgeHtml = badge ? `<span class="action-badge">${badge}</span>` : '';
-  const ttsHtml = type === 'bot' ? `<button class="tts-btn" onclick="speak(this.closest('.msg').querySelector('.msg-bubble').textContent)" ${currentLanguage === 'English' ? '' : ''}>${t('🔊 Listen', '🔊 सुनो')}</button>` : '';
+  const badgeHtml = '';
+  const ttsHtml = type === 'bot' ? `<button class="tts-btn" onclick="speak(this.closest('.msg').querySelector('.msg-bubble').textContent)">${t('🔊 Listen', '🔊 सुनो')}</button>` : '';
 
   if (type === 'user') {
     msgDiv.innerHTML = `<div>${imgsHtml}<div class="msg-bubble">${escapeHtml(text)}</div><div class="msg-time" style="text-align:right;">${time}</div></div>`;
@@ -546,7 +664,8 @@ function checkAnswer(btn, correct, explanation, topic, quizType, question) {
   const card = btn.closest('.quiz-card');
   const buttons = card.querySelectorAll('.quiz-option');
   const feedback = card.querySelector('.quiz-feedback');
-  const selected = btn.textContent.trim().substring(2); // Remove letter prefix
+  const letter = btn.querySelector('.quiz-letter');
+  const selected = btn.textContent.replace(letter ? letter.textContent : '', '').trim(); // Strip letter badge properly
 
   buttons.forEach(b => { b.disabled = true; if (b.dataset.correct === 'true') b.classList.add('correct'); });
 
