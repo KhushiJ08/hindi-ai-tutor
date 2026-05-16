@@ -412,7 +412,9 @@ input, textarea { font-family: inherit; }
 /* ━━━ Input Box (fixed bottom) ━━━ */
 .input-zone {
   position: sticky; bottom: 0; z-index: 10;
-  padding: 16px; background: linear-gradient(transparent, var(--bg) 30%);
+  padding: 16px; background: linear-gradient(transparent, rgba(8,8,8,0.6) 30%, rgba(8,8,8,0.85) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 .input-container {
   max-width: 860px; margin: 0 auto;
