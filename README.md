@@ -1,4 +1,4 @@
-# 🌾 Prajna — Hindi AI Tutor
+# 🌾 Prajna — Hindi AI Tutor 
 
 An AI-powered Hindi tutor that explains concepts in simple Hindi using local LLMs via [Ollama](https://ollama.ai). Built with a Flask backend and a modern vanilla HTML/CSS/JS frontend for an interactive, chat-based learning experience.
 
