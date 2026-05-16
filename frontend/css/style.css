@@ -667,19 +667,22 @@ input, textarea { font-family: inherit; }
 }
 .lang-slider.right { transform: translateX(100%); }
 
-/* ━━━ Sidebar Tabs ━━━ */
-.sidebar-tabs {
-  display: flex; gap: 4px; margin: 8px 0 4px;
-  background: #0d0d0d; border: 1px solid var(--border);
-  border-radius: var(--radius-pill); padding: 3px;
+/* ━━━ Sidebar Collapsible Sections ━━━ */
+.sidebar-collapsible { padding: 0; }
+.sidebar-collapse-btn {
+  width: 100%; padding: 12px 0; text-align: left;
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  color: var(--text-muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between;
+  transition: color 0.2s;
 }
-.stab {
-  flex: 1; padding: 7px 0; text-align: center;
-  font-family: var(--font-body); font-size: 13px;
-  color: var(--text-muted); border-radius: var(--radius-pill);
-  transition: color 0.2s; position: relative; z-index: 1;
+.sidebar-collapse-btn::after {
+  content: '▸'; font-size: 12px;
+  transition: transform 0.2s;
 }
-.stab--active { color: #fff; background: var(--blue); border-radius: var(--radius-pill); }
+.sidebar-collapse-btn.open::after { transform: rotate(90deg); }
+.sidebar-collapse-btn:hover { color: var(--text-head); }
+.sidebar-collapse-body { padding-bottom: 8px; }
 
 /* New Chat Button */
 .new-chat-wrap { padding: 10px 0 6px; }
@@ -690,6 +693,37 @@ input, textarea { font-family: inherit; }
   text-align: left; transition: all 0.2s;
 }
 .new-chat-btn:hover { background: rgba(79,142,247,0.15); border-style: solid; }
+
+/* Save Toggle */
+.save-toggle-wrap {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 4px; margin-bottom: 4px;
+}
+.save-toggle-label {
+  font-size: 12px; color: var(--text-muted);
+  font-family: var(--font-body);
+}
+.toggle-switch {
+  position: relative; display: inline-block;
+  width: 36px; height: 20px;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--border); border-radius: 20px;
+  transition: background 0.25s;
+}
+.toggle-slider::before {
+  content: ''; position: absolute;
+  width: 16px; height: 16px; left: 2px; bottom: 2px;
+  background: var(--text-muted); border-radius: 50%;
+  transition: transform 0.25s, background 0.25s;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--blue); }
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(16px); background: #fff;
+}
 
 /* Conversation List */
 .convo-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; max-height: 340px; }

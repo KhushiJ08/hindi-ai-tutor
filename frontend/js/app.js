@@ -8,6 +8,7 @@ let uploadedImages = [];
 let currentMode = 'fast';
 let currentLanguage = localStorage.getItem('prajna_lang') || 'Hindi';
 let currentConversationId = null; // active conversation ID
+let saveChatsEnabled = localStorage.getItem('prajna_save_chats') !== 'false'; // default: on
 
 // ─── Auth Gate ───
 (function authGate() {
@@ -190,6 +191,11 @@ if (hamburger) hamburger.addEventListener('click', toggleSidebar);
 if (sidebarClose) sidebarClose.addEventListener('click', toggleSidebar);
 if (overlay) overlay.addEventListener('click', toggleSidebar);
 
+function closeSidebar() {
+  if (sidebar) sidebar.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
+}
+
 async function loadSidebarData() {
   const studentId = localStorage.getItem('prajna_student_id');
   const name = localStorage.getItem('prajna_name') || 'User';
@@ -237,15 +243,37 @@ async function loadSidebarData() {
   updateUILanguage();
 }
 
-// ─── Sidebar Tab Switcher ───
-function switchSidebarTab(tab) {
-  document.getElementById('tabChats').style.display = tab === 'chats' ? '' : 'none';
-  document.getElementById('tabStats').style.display  = tab === 'stats' ? '' : 'none';
-  document.getElementById('stabChats').className = 'stab' + (tab === 'chats' ? ' stab--active' : '');
-  document.getElementById('stabStats').className  = 'stab' + (tab === 'stats' ? ' stab--active' : '');
+// ─── Collapsible Sections ───
+function toggleSection(btn) {
+  const body = btn.nextElementSibling;
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    btn.classList.add('open');
+  } else {
+    body.style.display = 'none';
+    btn.classList.remove('open');
+  }
 }
 
-// ─── Conversation History ───
+// ─── Save Chats Toggle ───
+function toggleSaveChats(enabled) {
+  saveChatsEnabled = enabled;
+  localStorage.setItem('prajna_save_chats', enabled ? 'true' : 'false');
+  const list = document.getElementById('conversationList');
+  if (list) list.style.display = enabled ? '' : 'none';
+  if (!enabled) {
+    currentConversationId = null; // stop saving to current conversation
+  }
+}
+
+// Restore toggle state on page load
+window.addEventListener('DOMContentLoaded', () => {
+  const toggle = document.getElementById('saveChatToggle');
+  if (toggle) {
+    toggle.checked = saveChatsEnabled;
+    toggleSaveChats(saveChatsEnabled);
+  }
+});
 async function loadConversations(studentId) {
   if (!studentId) return;
   try {
@@ -304,7 +332,7 @@ async function switchConversation(conversationId) {
     const msgs = document.getElementById('chatMessages');
     if (msgs) {
       msgs.innerHTML = '';
-      messages.forEach(m => addMessage(m.role === 'assistant' ? 'bot' : 'user', m.content));
+      messages.forEach(m => appendMessage(m.role === 'assistant' ? 'bot' : 'user', m.content));
     }
   } catch(e) {}
   closeSidebar();
@@ -529,9 +557,9 @@ async function sendMessage() {
 
   showTyping();
 
-  // Auto-create a conversation on first message
+  // Auto-create a conversation on first message (only if save is on)
   const studentId = parseInt(localStorage.getItem('prajna_student_id')) || null;
-  if (studentId && !currentConversationId) {
+  if (saveChatsEnabled && studentId && !currentConversationId) {
     try {
       const cRes = await fetch('/api/conversations', {
         method: 'POST',
@@ -554,7 +582,7 @@ async function sendMessage() {
         mode: currentMode,
         language: currentLanguage,
         student_id: studentId,
-        conversation_id: currentConversationId,
+        conversation_id: saveChatsEnabled ? currentConversationId : null,
       }),
     });
 
@@ -568,7 +596,7 @@ async function sendMessage() {
     chatHistory.push({ role: 'assistant', content: reply });
 
     // Refresh conversation list so auto-title appears immediately
-    if (studentId) loadConversations(studentId);
+    if (saveChatsEnabled && studentId) loadConversations(studentId);
 
 
     appendMessage('bot', reply);

@@ -22,7 +22,7 @@
       <button class="sidebar-close" id="sidebarClose" title="Close">✕</button>
     </div>
 
-    <!-- User Info -->
+    <!-- User Info + Streak -->
     <div class="sidebar-section">
       <div class="sidebar-user" id="sidebarUser">
         <div class="nav-avatar" id="sidebarAvatar">U</div>
@@ -33,47 +33,39 @@
       </div>
     </div>
 
-    <!-- Sidebar Tabs -->
-    <div class="sidebar-tabs">
-      <button class="stab stab--active" id="stabChats" onclick="switchSidebarTab('chats')" data-en="💬 Chats" data-hi="💬 चैट">💬 Chats</button>
-      <button class="stab" id="stabStats" onclick="switchSidebarTab('stats')" data-en="📊 Stats" data-hi="📊 आंकड़े">📊 Stats</button>
-    </div>
-
-    <!-- ── Chats Tab ── -->
-    <div id="tabChats">
+    <!-- New Chat + Chat History -->
+    <div class="sidebar-section" style="flex:1; overflow-y:auto;">
       <div class="new-chat-wrap">
         <button class="new-chat-btn" id="newChatBtn" onclick="createNewChat()" data-en="＋ New Chat" data-hi="＋ नई चैट">＋ New Chat</button>
+      </div>
+      <div class="save-toggle-wrap">
+        <label class="save-toggle-label" data-en="💾 Save chat history" data-hi="💾 चैट सेव करो">💾 Save chat history</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="saveChatToggle" checked onchange="toggleSaveChats(this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
       </div>
       <div id="conversationList" class="convo-list"></div>
     </div>
 
-    <!-- ── Stats Tab ── -->
-    <div id="tabStats" style="display:none;">
-      <div class="sidebar-label" data-en="🏅 Badges" data-hi="🏅 बैज">🏅 Badges</div>
-      <div class="badges-list" id="badgesList"></div>
-    </div>
-
-
-
-    <!-- Calendar -->
-    <div class="sidebar-section">
-      <div class="sidebar-label" data-en="📅 Learning Calendar" data-hi="📅 कैलेंडर">📅 Learning Calendar</div>
-      <div class="mini-calendar" id="miniCalendar"></div>
-      <div class="cal-legend">
-        <span><span class="cal-dot cal-dot--active"></span> <span data-en="Active" data-hi="सक्रिय">Active</span></span>
-        <span><span class="cal-dot cal-dot--today"></span> <span data-en="Today" data-hi="आज">Today</span></span>
-        <span><span class="cal-dot cal-dot--none"></span> <span data-en="None" data-hi="कोई नहीं">None</span></span>
+    <!-- Calendar (collapsible) -->
+    <div class="sidebar-section sidebar-collapsible">
+      <button class="sidebar-collapse-btn" onclick="toggleSection(this)" data-en="📅 Calendar" data-hi="📅 कैलेंडर">📅 Calendar</button>
+      <div class="sidebar-collapse-body" style="display:none;">
+        <div class="mini-calendar" id="miniCalendar"></div>
+        <div class="cal-legend">
+          <span><span class="cal-dot cal-dot--active"></span> <span data-en="Active" data-hi="सक्रिय">Active</span></span>
+          <span><span class="cal-dot cal-dot--today"></span> <span data-en="Today" data-hi="आज">Today</span></span>
+          <span><span class="cal-dot cal-dot--none"></span> <span data-en="None" data-hi="कोई नहीं">None</span></span>
+        </div>
       </div>
     </div>
-    </div><!-- /tabStats -->
 
-    <!-- Language Toggle -->
-    <div class="sidebar-section">
-      <div class="sidebar-label" data-en="🌐 Language" data-hi="🌐 भाषा">🌐 Language / भाषा</div>
-      <div class="lang-toggle" id="langToggle">
-        <button class="lang-btn active" data-lang="Hindi" onclick="setLanguage('Hindi')">हिन्दी</button>
-        <button class="lang-btn" data-lang="English" onclick="setLanguage('English')">English</button>
-        <div class="lang-slider" id="langSlider"></div>
+    <!-- Badges (collapsible) -->
+    <div class="sidebar-section sidebar-collapsible" id="badgesSection" style="display:none;">
+      <button class="sidebar-collapse-btn" onclick="toggleSection(this)" data-en="🏅 Badges" data-hi="🏅 बैज">🏅 Badges</button>
+      <div class="sidebar-collapse-body" style="display:none;">
+        <div class="badges-list" id="badgesList"></div>
       </div>
     </div>
 
