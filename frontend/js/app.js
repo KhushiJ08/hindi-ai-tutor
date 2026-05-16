@@ -212,9 +212,7 @@ async function loadSidebarData() {
     const sStreak = document.getElementById('sidebarStreak');
     if (sStreak) sStreak.textContent = `🔥 ${data.streak} Days`;
 
-    document.getElementById('statMastered').textContent = data.mastered;
-    document.getElementById('statLearning').textContent = data.learning;
-    document.getElementById('statStruggling').textContent = data.struggling;
+
 
     // Badges
     const badgesSection = document.getElementById('badgesSection');
@@ -573,26 +571,11 @@ async function sendMessage() {
     if (studentId) loadConversations(studentId);
 
 
-    // Action badge labels
-    const actionLabels = {
-      explain: t('💡 Explain', '💡 समझाओ'),
-      quiz: t('❓ Quiz Time', '❓ क्विज़'),
-      revise: t('🔄 Revision', '🔄 दोहराई'),
-      game: t('🎮 Fun Game', '🎮 खेल'),
-      clarify: t('🤔 Clarification', '🤔 स्पष्टीकरण'),
-    };
-    const badge = actionLabels[action] || '';
-
-    appendMessage('bot', reply, null, badge);
+    appendMessage('bot', reply);
 
     // Quiz card
     if (data.quiz_data && (action === 'quiz' || action === 'game')) {
       appendQuiz(data.quiz_data, data.topic);
-    }
-
-    // Topic tracking toast
-    if (data.topic && data.topic !== 'Error' && action !== 'quiz' && action !== 'game') {
-      showToast(`🧠 Tracked: ${data.topic} (${data.status || 'Learning'})`);
     }
 
   } catch (err) {
@@ -612,7 +595,7 @@ function appendMessage(type, text, images, badge) {
     imgsHtml = images.map(img => `<img src="${img.data}" class="msg-img" alt="attached">`).join('');
   }
 
-  const badgeHtml = badge ? `<span class="action-badge">${badge}</span>` : '';
+  const badgeHtml = '';
   const ttsHtml = type === 'bot' ? `<button class="tts-btn" onclick="speak(this.closest('.msg').querySelector('.msg-bubble').textContent)">${t('🔊 Listen', '🔊 सुनो')}</button>` : '';
 
   if (type === 'user') {
