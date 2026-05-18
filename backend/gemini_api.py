@@ -17,14 +17,14 @@ MODEL_NAME = "gemma4:e4b"
 MODE_OPTIONS = {
     "Fast Result": {
         "num_ctx": 4096,
-        "num_predict": 512,
+        "num_predict": 2048,
         "temperature": 0.8,
         "top_p": 0.85,
         "repeat_penalty": 1.1
     },
     "Long Think": {
         "num_ctx": 8192,
-        "num_predict": 1024,
+        "num_predict": 4096,
         "temperature": 0.5,
         "top_p": 0.9,
         "repeat_penalty": 1.15
@@ -351,10 +351,6 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
         })
 
     # ── Invoke API ───────────────────────────────────────────────────────
-    # Do NOT force "format": "json" for ANY request — gemma4 often returns
-    # empty content with that constraint, especially with larger prompts or
-    # thinking mode.  The system prompt already asks for JSON output, and
-    # we have _extract_json_string() to handle freeform wrappers.
     payload = {
         "model": MODEL_NAME,
         "messages": messages,
@@ -363,16 +359,29 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
     }
 
     if images:
-        # Vision requests need a larger token budget
-        payload["options"]["num_predict"] = max(opts.get("num_predict", 512), 2048)
-        payload["options"]["num_ctx"] = max(opts.get("num_ctx", 4096), 8192)
+        # Vision requests need a larger token budget; skip format:json
+        payload["options"]["num_predict"] = max(opts.get("num_predict", 2048), 4096)
+        payload["options"]["num_ctx"] = max(opts.get("num_ctx", 8192), 8192)
+    elif mode == "Fast Result":
+        # Fast text-only can use forced JSON (charmap crash was the old issue, now fixed)
+        payload["format"] = "json"
+    # Long Think: do NOT force format:json — thinking + JSON constraint causes empty output
 
-    def _safe_print(text):
-        """Print text safely on Windows consoles that choke on emoji/unicode."""
+    # ── Debug log file (always works, unlike terminal print) ─────────
+    import pathlib
+    _log_file = pathlib.Path(__file__).resolve().parent.parent / "ollama_debug.log"
+
+    def _log_raw(text):
+        """Append to debug log file + safe print to console."""
+        try:
+            with open(_log_file, "a", encoding="utf-8") as f:
+                f.write(text + "\n")
+        except Exception:
+            pass
         try:
             print(text)
-        except UnicodeEncodeError:
-            print(text.encode("utf-8", errors="replace").decode("ascii", errors="replace"))
+        except (UnicodeEncodeError, Exception):
+            pass
 
     MAX_RETRIES = 2
     last_raw = ""
@@ -386,18 +395,19 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
 
             raw_out = resp.json().get("message", {}).get("content", "").strip()
 
-            _safe_print(f"\n=== RAW OLLAMA RESPONSE (attempt {attempt+1}) ===")
-            _safe_print(raw_out if raw_out else "(empty)")
-            _safe_print("===========================\n")
+            _log_raw(f"\n=== RAW OLLAMA RESPONSE (attempt {attempt+1}, mode={mode}, {time_taken}s) ===")
+            _log_raw(raw_out if raw_out else "(empty)")
+            _log_raw("===========================\n")
 
             # ── Handle empty response — retry once ──
             if not raw_out:
                 logger.warning("Ollama returned empty content (attempt %d/%d).", attempt+1, MAX_RETRIES)
                 if attempt < MAX_RETRIES - 1:
-                    # Nudge the model on retry: bump temperature slightly
+                    # On retry: bump temperature, and if format:json was set, remove it
                     payload["options"]["temperature"] = min(
                         payload["options"].get("temperature", 0.8) + 0.2, 1.2
                     )
+                    payload.pop("format", None)  # remove json constraint on retry
                     continue  # retry
                 # All retries exhausted
                 msg = ("⚠️ Model returned an empty response. Please try again." if language == "English"
@@ -427,7 +437,7 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
                    else "⚠️ Server ne bahut der laga di. Phir se try karo.")
             return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
         except json.JSONDecodeError:
-            logger.error("JSON parse error from Ollama. Raw output: %s", last_raw or raw_out)
+            _log_raw(f"JSON PARSE ERROR. Raw: {last_raw or raw_out}")
             return {
                 "action": "explain",
                 "tutor_response": _salvage_response(last_raw or raw_out, language),
@@ -435,12 +445,31 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
                 "status": "Learning"
             }
         except Exception as e:
-            logger.error("Error communicating with Ollama: %s", e)
-            msg = (f"⚠️ Something went wrong: {e}" if language == "English"
-                   else f"⚠️ Kuch gadbad ho gayi: {e}")
+            import traceback
+            tb = traceback.format_exc()
+            
+            # Write safely to debug log
+            try:
+                with open(_log_file, "a", encoding="utf-8") as f:
+                    f.write(f"\nCRITICAL EXCEPTION:\n{tb}\n")
+            except Exception:
+                pass
+                
+            # Strip non-ascii for safe frontend display and logging
+            safe_tb = tb.encode('ascii', errors='replace').decode('ascii')
+            safe_err = str(e).encode('ascii', errors='replace').decode('ascii')
+            
+            try:
+                logger.error("Error communicating with Ollama: %s", safe_err)
+            except Exception:
+                pass
+                
+            msg = f"⚠️ SYSTEM CRASH: {safe_err} | Check backend logs or view line: {safe_tb.splitlines()[-2] if len(safe_tb.splitlines()) > 1 else 'unknown'}"
             return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
 
     # Should not reach here, but just in case
     msg = ("⚠️ Model returned an empty response. Please try again." if language == "English"
            else "⚠️ Model ne khaali jawab diya. Phir se try karo.")
     return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
+
+

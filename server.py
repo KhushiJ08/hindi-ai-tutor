@@ -4,6 +4,15 @@ Serves the static frontend and proxies chat requests to Ollama.
 Provides API endpoints for auth, progress tracking, and calendar data.
 """
 
+# ── Fix Windows console encoding ──
+# Windows cmd/PowerShell uses cp1252 (charmap) by default, which crashes
+# on emoji and Hindi characters in model responses.  Force UTF-8 globally.
+import sys, io
+if sys.stdout and hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if sys.stderr and hasattr(sys.stderr, 'buffer'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from backend.gemini_api import get_response, generate_title
