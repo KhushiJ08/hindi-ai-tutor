@@ -10,6 +10,38 @@ let currentLanguage = localStorage.getItem('prajna_lang') || 'Hindi';
 let currentConversationId = null; // active conversation ID
 let saveChatsEnabled = localStorage.getItem('prajna_save_chats') !== 'false'; // default: on
 
+// ─── Dummy data for hackathon demo ───
+function generateDummyActivityData() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const todayDate = today.getDate();
+  const activityMap = {};
+  for (let day = 1; day < todayDate; day++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    if (day >= todayDate - 12) {
+      activityMap[dateStr] = Math.floor(Math.random() * 3) + 3;
+    } else if (day >= todayDate - 18) {
+      if (Math.random() > 0.3) activityMap[dateStr] = Math.floor(Math.random() * 3) + 1;
+    } else {
+      if (Math.random() > 0.6) activityMap[dateStr] = Math.floor(Math.random() * 2) + 1;
+    }
+  }
+  const todayStr = `${year}-${String(month+1).padStart(2,'0')}-${String(todayDate).padStart(2,'0')}`;
+  activityMap[todayStr] = 4;
+  return activityMap;
+}
+const DUMMY_ACTIVITY = generateDummyActivityData();
+const DUMMY_STREAK = 12;
+const DUMMY_HIGHEST_STREAK = 18;
+const DUMMY_BADGES = [
+  { icon: '🥈', label: 'Week Warrior', labelHi: 'सप्ताह योद्धा', desc: '7-day streak', descHi: '7 दिन की स्ट्रीक' },
+  { icon: '🥉', label: '3-Day Starter', labelHi: '3 दिन की शुरुआत', desc: '3-day streak', descHi: '3 दिन की स्ट्रीक' },
+  { icon: '🎯', label: 'Quiz Master', labelHi: 'क्विज़ मास्टर', desc: '10 quizzes aced', descHi: '10 क्विज़ पास' },
+  { icon: '📚', label: 'Bookworm', labelHi: 'किताबी कीड़ा', desc: '20 topics covered', descHi: '20 विषय पूरे' },
+  { icon: '⚡', label: 'Speed Learner', labelHi: 'तेज़ सीखने वाला', desc: '5 topics in a day', descHi: 'एक दिन में 5 विषय' },
+];
+
 // ─── Auth Gate ───
 (function authGate() {
   const studentId = localStorage.getItem('prajna_student_id');
@@ -210,31 +242,48 @@ async function loadSidebarData() {
     sAvatar.textContent = parts[0] ? (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase() : '?';
   }
 
-  // Fetch progress
+  // Use dummy data for streak (merge with real data if available)
+  let streak = DUMMY_STREAK;
+  let badges = DUMMY_BADGES;
+
   try {
     const res = await fetch(`/api/progress/${studentId}`);
     const data = await res.json();
+    // Use real streak if higher, otherwise keep dummy
+    if (data.streak > streak) streak = data.streak;
+  } catch (e) { /* use dummy */ }
 
-    const sStreak = document.getElementById('sidebarStreak');
-    if (sStreak) sStreak.textContent = `🔥 ${data.streak} Days`;
+  const sStreak = document.getElementById('sidebarStreak');
+  if (sStreak) sStreak.textContent = `🔥 ${streak} Days`;
 
+  // Render badges
+  const badgesSection = document.getElementById('badgesSection');
+  const badgesList = document.getElementById('badgesList');
+  if (badgesList) {
+    badgesList.innerHTML = badges.map((b, i) => `
+      <div class="badge-card" style="animation-delay:${i * 0.08}s">
+        <span class="badge-icon">${b.icon}</span>
+        <div class="badge-info">
+          <span class="badge-label" data-en="${b.label}" data-hi="${b.labelHi}">${currentLanguage === 'English' ? b.label : b.labelHi}</span>
+          <span class="badge-desc" data-en="${b.desc}" data-hi="${b.descHi}">${currentLanguage === 'English' ? b.desc : b.descHi}</span>
+        </div>
+      </div>
+    `).join('');
+    if (badgesSection) badgesSection.style.display = 'block';
+  }
 
-
-    // Badges
-    const badgesSection = document.getElementById('badgesSection');
-    const badgesList = document.getElementById('badgesList');
-    if (data.badges && data.badges.length > 0) {
-      badgesSection.style.display = 'block';
-      badgesList.innerHTML = data.badges.map(b => `<span>${b}</span>`).join('');
-    }
-  } catch (e) { /* server might not be up yet */ }
-
-  // Fetch calendar
+  // Render calendar with dummy heatmap data (merge with real)
+  let activityMap = { ...DUMMY_ACTIVITY };
   try {
     const res = await fetch(`/api/calendar/${studentId}`);
     const data = await res.json();
-    renderCalendar(data.active_dates || []);
-  } catch (e) { renderCalendar([]); }
+    // Merge real active dates into the map
+    (data.active_dates || []).forEach(d => {
+      if (!activityMap[d]) activityMap[d] = 2;
+    });
+  } catch (e) { /* use dummy only */ }
+
+  renderCalendar(activityMap);
 
   // Load conversation list
   await loadConversations(studentId);
@@ -351,8 +400,8 @@ async function deleteConvoItem(e, conversationId) {
   await loadConversations(studentId);
 }
 
-// ─── Mini Calendar ───
-function renderCalendar(activeDates) {
+// ─── Heatmap Calendar ───
+function renderCalendar(activityMap) {
   const container = document.getElementById('miniCalendar');
   if (!container) return;
 
@@ -366,10 +415,20 @@ function renderCalendar(activeDates) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const todayDate = today.getDate();
 
-  const activeSet = new Set(activeDates);
   const dayHeaders = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 
-  let html = `<div style="text-align:center;font-size:13px;font-weight:600;color:var(--text-head);margin-bottom:8px;">${monthNames[month]} ${year}</div>`;
+  // Streak counter
+  let currentStreak = 0;
+  for (let d = todayDate; d >= 1; d--) {
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    if (activityMap[ds]) currentStreak++;
+    else break;
+  }
+
+  let html = `<div class="cal-header">
+    <span class="cal-month">${monthNames[month]} ${year}</span>
+    <span class="cal-streak-badge">🔥 ${currentStreak} day streak</span>
+  </div>`;
   html += '<table><tr>';
   dayHeaders.forEach(d => { html += `<th>${d}</th>`; });
   html += '</tr><tr>';
@@ -382,13 +441,29 @@ function renderCalendar(activeDates) {
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const isToday = (day === todayDate);
-    const isActive = activeSet.has(dateStr);
+    const activity = activityMap[dateStr] || 0;
+    const isFuture = day > todayDate;
 
     let cls = 'cal-day--none';
-    if (isActive) cls = 'cal-day--active';
-    if (isToday) cls = 'cal-day--today';
+    let tooltip = dateStr;
+    if (isFuture) {
+      cls = 'cal-day--future';
+      tooltip += ' (upcoming)';
+    } else if (isToday) {
+      cls = 'cal-day--today';
+      tooltip += ` — ${activity} sessions (today)`;
+    } else if (activity >= 4) {
+      cls = 'cal-day--high';
+      tooltip += ` — ${activity} sessions`;
+    } else if (activity >= 2) {
+      cls = 'cal-day--active';
+      tooltip += ` — ${activity} sessions`;
+    } else if (activity >= 1) {
+      cls = 'cal-day--low';
+      tooltip += ` — ${activity} session`;
+    }
 
-    html += `<td><div class="cal-day ${cls}" title="${dateStr}">${day}</div></td>`;
+    html += `<td><div class="cal-day ${cls}" title="${tooltip}">${day}</div></td>`;
 
     if ((firstDay + day) % 7 === 0 && day < daysInMonth) html += '</tr><tr>';
   }

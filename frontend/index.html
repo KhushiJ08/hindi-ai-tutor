@@ -50,11 +50,13 @@
 
     <!-- Calendar (collapsible) -->
     <div class="sidebar-section sidebar-collapsible">
-      <button class="sidebar-collapse-btn" onclick="toggleSection(this)" data-en="📅 Calendar" data-hi="📅 कैलेंडर">📅 Calendar</button>
-      <div class="sidebar-collapse-body" style="display:none;">
+      <button class="sidebar-collapse-btn open" onclick="toggleSection(this)" data-en="📅 Activity" data-hi="📅 गतिविधि">📅 Activity</button>
+      <div class="sidebar-collapse-body">
         <div class="mini-calendar" id="miniCalendar"></div>
         <div class="cal-legend">
+          <span><span class="cal-dot cal-dot--high"></span> <span data-en="High" data-hi="ज़्यादा">High</span></span>
           <span><span class="cal-dot cal-dot--active"></span> <span data-en="Active" data-hi="सक्रिय">Active</span></span>
+          <span><span class="cal-dot cal-dot--low"></span> <span data-en="Low" data-hi="कम">Low</span></span>
           <span><span class="cal-dot cal-dot--today"></span> <span data-en="Today" data-hi="आज">Today</span></span>
           <span><span class="cal-dot cal-dot--none"></span> <span data-en="None" data-hi="कोई नहीं">None</span></span>
         </div>
@@ -62,9 +64,9 @@
     </div>
 
     <!-- Badges (collapsible) -->
-    <div class="sidebar-section sidebar-collapsible" id="badgesSection" style="display:none;">
-      <button class="sidebar-collapse-btn" onclick="toggleSection(this)" data-en="🏅 Badges" data-hi="🏅 बैज">🏅 Badges</button>
-      <div class="sidebar-collapse-body" style="display:none;">
+    <div class="sidebar-section sidebar-collapsible" id="badgesSection">
+      <button class="sidebar-collapse-btn open" onclick="toggleSection(this)" data-en="🏅 Badges" data-hi="🏅 बैज">🏅 Badges</button>
+      <div class="sidebar-collapse-body">
         <div class="badges-list" id="badgesList"></div>
       </div>
     </div>

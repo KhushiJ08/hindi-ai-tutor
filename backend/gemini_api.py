@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import re
 import requests
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,30 @@ MODE_OPTIONS = {
 }
 MODE_TIMEOUT = {"Fast Result": 60, "Long Think": 300}
 
+def _extract_json_string(text):
+    """Attempt to extract a JSON object from freeform text."""
+    if "```json" in text:
+        text = text.split("```json", 1)[-1]
+        text = text.split("```", 1)[0]
+    elif "```" in text:
+        text = text.split("```", 1)[-1]
+        text = text.split("```", 1)[0]
+    
+    text = text.strip()
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        return match.group(0)
+    return text
+
+def _salvage_response(raw_text, language="Hindi"):
+    """If JSON fails entirely, return the raw text cleaned up."""
+    text = raw_text.replace("```json", "").replace("```", "").strip()
+    if not text:
+        if language == "English":
+            return "I understood the image, but I'm having trouble formatting my response. Could you ask a specific question?"
+        else:
+            return "Mujhe image samajh aa gayi, par jawab format karne me thodi problem ho rahi hai. Kya tum ek specific sawal pooch sakte ho?"
+    return text
 
 def generate_title(user_message, language="Hindi"):
     """Ask Ollama to generate a short descriptive title for a conversation.
@@ -63,15 +88,13 @@ def generate_title(user_message, language="Hindi"):
     try:
         resp = requests.post(url, json=payload, timeout=10)
         resp.raise_for_status()
-        raw_out = resp.json()["message"]["content"].strip()
-        
-        # Handle markdown fences around JSON
-        if raw_out.startswith("```"):
-            raw_out = raw_out.split("\n", 1)[-1]
-            if raw_out.endswith("```"):
-                raw_out = raw_out[:-3]
-            raw_out = raw_out.strip()
-            
+        raw_out = resp.json().get("message", {}).get("content", "").strip()
+
+        if not raw_out:
+            logger.warning("generate_title: empty response from Ollama")
+            return user_message[:60]
+
+        raw_out = _extract_json_string(raw_out)
         data = json.loads(raw_out)
         title = data.get("title", "").strip()
         return title[:80] if title else user_message[:60]
@@ -324,35 +347,48 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
         })
 
     # ── Invoke API ───────────────────────────────────────────────────────
+    # When images are present, do NOT force "format": "json" — gemma4 vision
+    # often returns empty content with that constraint.  The system prompt
+    # already asks for JSON, so we parse it ourselves.
     payload = {
         "model": MODEL_NAME,
         "messages": messages,
         "stream": False,
-        "format": "json",
-        "options": opts
+        "options": opts.copy()
     }
-    
+
+    if images:
+        # Vision requests and math explanations need a much larger token budget
+        payload["options"]["num_predict"] = max(opts.get("num_predict", 256), 2048)
+        # Also bump the context window for images
+        payload["options"]["num_ctx"] = max(opts.get("num_ctx", 1024), 4096)
+    else:
+        # Text-only requests can safely use forced JSON mode
+        payload["format"] = "json"
+
     try:
         resp = requests.post(url, json=payload, timeout=timeout)
         resp.raise_for_status()
-        raw_out = resp.json()["message"]["content"].strip()
-        
-        # ── Robust Markdown Stripping ──
-        if raw_out.startswith("```"):
-            raw_out = raw_out.split("\n", 1)[-1]
-            if raw_out.endswith("```"):
-                raw_out = raw_out[:-3]
-            raw_out = raw_out.strip()
-            
+        raw_out = resp.json().get("message", {}).get("content", "").strip()
+
+        # ── Handle empty response ──
+        if not raw_out:
+            logger.error("Ollama returned empty content for chat request.")
+            msg = ("⚠️ Model returned an empty response. Please try again." if language == "English"
+                   else "⚠️ Model ne khaali jawab diya. Phir se try karo.")
+            return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
+
+        # ── Extract and parse JSON ──
+        raw_out = _extract_json_string(raw_out)
         data = json.loads(raw_out)
-        
+
         # Ensure critical keys exist
         data.setdefault("action", "explain")
         data.setdefault("tutor_response", "")
         data.setdefault("topic", "General")
         data.setdefault("status", "Learning")
         return data
-        
+
     except requests.exceptions.ConnectionError:
         msg = ("⚠️ Unable to connect to Ollama server." if language == "English"
                else "⚠️ Ollama server se connect nahi ho paa raha.")
@@ -361,11 +397,15 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
         msg = ("⚠️ Server took too long. Please try again." if language == "English"
                else "⚠️ Server ne bahut der laga di. Phir se try karo.")
         return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         logger.error("JSON parse error from Ollama. Raw output: %s", raw_out)
-        msg = ("⚠️ Model returned invalid format. Please try again." if language == "English"
-               else "⚠️ Model ne galat format diya. Phir se try karo.")
-        return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
+        # Last resort: try to use the raw text as a plain-text tutor response
+        return {
+            "action": "explain",
+            "tutor_response": _salvage_response(raw_out, language),
+            "topic": "General",
+            "status": "Learning"
+        }
     except Exception as e:
         logger.error("Error communicating with Ollama: %s", e)
         msg = (f"⚠️ Something went wrong: {e}" if language == "English"
