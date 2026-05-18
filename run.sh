@@ -21,12 +21,22 @@ if ! pgrep -x "ollama" > /dev/null; then
     sleep 5
 fi
 
-# Pull the model only if not already cached
-if ! ollama list 2>/dev/null | grep -q "gemma4:e4b"; then
-    echo "Pulling model gemma4:e4b (first time setup — this may take a while)..."
-    ollama pull gemma4:e4b
+# ── Automatic hardware detection & model setup ──
+python3 setup_model.py
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[FATAL] Hardware check failed. Prajna cannot start."
+    echo "        Please read the error message above."
+    exit 1
+fi
+
+# Read the model choice written by setup_model.py
+if [ -f ".prajna_model" ]; then
+    export PRAJNA_MODEL=$(cat .prajna_model)
+    echo "Using model: $PRAJNA_MODEL"
 else
-    echo "Model gemma4:e4b already available."
+    export PRAJNA_MODEL="gemma4:e2b"
+    echo "[!] .prajna_model not found. Defaulting to $PRAJNA_MODEL"
 fi
 
 # Launch with Gunicorn (production WSGI server — no dev-server warning)

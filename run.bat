@@ -30,14 +30,24 @@ echo [3/4] Starting Ollama server...
 start /B ollama serve
 timeout /t 5 /nobreak >NUL
 
-:: Pull the model only if not already cached
-echo [4/4] Ensuring model is available...
-ollama list 2>NUL | find /I "gemma4:e4b" >NUL
+:: ── Automatic hardware detection and model setup ──
+echo [4/4] Detecting hardware and setting up model...
+python setup_model.py
 if %ERRORLEVEL% NEQ 0 (
-    echo      Pulling model gemma4:e4b (first time setup ? this may take a while^)...
-    ollama pull gemma4:e4b
+    echo.
+    echo [FATAL] Hardware check failed. Prajna cannot start.
+    echo         Please read the error message above.
+    pause
+    exit /b 1
+)
+
+:: Read the model choice written by setup_model.py
+if exist ".prajna_model" (
+    set /p PRAJNA_MODEL=<.prajna_model
+    echo Using model: %PRAJNA_MODEL%
 ) else (
-    echo      Model gemma4:e4b already available.
+    set PRAJNA_MODEL=gemma4:e2b
+    echo [!] .prajna_model not found. Defaulting to gemma4:e2b
 )
 
 :: Launch the Prajna server

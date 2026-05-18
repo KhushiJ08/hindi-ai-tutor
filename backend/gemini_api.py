@@ -8,7 +8,31 @@ import time
 logger = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-MODEL_NAME = "gemma4:e4b"
+
+# ── Dynamic model selection ──
+# Priority: env var (set by run.sh/run.bat) → .prajna_model file (written by setup_model.py) → default
+def _resolve_model_name():
+    """Determine which Gemma 4 model to use, based on hardware detection."""
+    # 1. Check environment variable (set by the launcher scripts)
+    env_model = os.environ.get("PRAJNA_MODEL")
+    if env_model:
+        return env_model
+
+    # 2. Check .prajna_model file (written by setup_model.py)
+    model_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".prajna_model")
+    try:
+        with open(model_file, "r") as f:
+            file_model = f.read().strip()
+            if file_model:
+                return file_model
+    except FileNotFoundError:
+        pass
+
+    # 3. Safe default
+    return "gemma4:e2b"
+
+MODEL_NAME = _resolve_model_name()
+logger.info(f"Using model: {MODEL_NAME}")
 
 # ── Mode-specific generation options ──
 # NOTE: The system prompt is ~3000+ tokens, so num_ctx must be large enough
