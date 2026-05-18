@@ -367,56 +367,80 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
         payload["options"]["num_predict"] = max(opts.get("num_predict", 512), 2048)
         payload["options"]["num_ctx"] = max(opts.get("num_ctx", 4096), 8192)
 
-    try:
-        start_t = time.time()
-        resp = requests.post(url, json=payload, timeout=timeout)
-        resp.raise_for_status()
-        time_taken = round(time.time() - start_t, 1)
-        
-        raw_out = resp.json().get("message", {}).get("content", "").strip()
+    def _safe_print(text):
+        """Print text safely on Windows consoles that choke on emoji/unicode."""
+        try:
+            print(text)
+        except UnicodeEncodeError:
+            print(text.encode("utf-8", errors="replace").decode("ascii", errors="replace"))
 
-        print("\n=== RAW OLLAMA RESPONSE ===")
-        print(raw_out)
-        print("===========================\n")
+    MAX_RETRIES = 2
+    last_raw = ""
 
-        # ── Handle empty response ──
-        if not raw_out:
-            logger.error("Ollama returned empty content for chat request.")
-            msg = ("⚠️ Model returned an empty response. Please try again." if language == "English"
-                   else "⚠️ Model ne khaali jawab diya. Phir se try karo.")
+    for attempt in range(MAX_RETRIES):
+        try:
+            start_t = time.time()
+            resp = requests.post(url, json=payload, timeout=timeout)
+            resp.raise_for_status()
+            time_taken = round(time.time() - start_t, 1)
+
+            raw_out = resp.json().get("message", {}).get("content", "").strip()
+
+            _safe_print(f"\n=== RAW OLLAMA RESPONSE (attempt {attempt+1}) ===")
+            _safe_print(raw_out if raw_out else "(empty)")
+            _safe_print("===========================\n")
+
+            # ── Handle empty response — retry once ──
+            if not raw_out:
+                logger.warning("Ollama returned empty content (attempt %d/%d).", attempt+1, MAX_RETRIES)
+                if attempt < MAX_RETRIES - 1:
+                    # Nudge the model on retry: bump temperature slightly
+                    payload["options"]["temperature"] = min(
+                        payload["options"].get("temperature", 0.8) + 0.2, 1.2
+                    )
+                    continue  # retry
+                # All retries exhausted
+                msg = ("⚠️ Model returned an empty response. Please try again." if language == "English"
+                       else "⚠️ Model ne khaali jawab diya. Phir se try karo.")
+                return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
+
+            last_raw = raw_out
+
+            # ── Extract and parse JSON ──
+            json_text = _extract_json_string(raw_out)
+            data = json.loads(json_text)
+
+            # Ensure critical keys exist
+            data.setdefault("action", "explain")
+            data.setdefault("tutor_response", "")
+            data.setdefault("topic", "General")
+            data.setdefault("status", "Learning")
+            data["time_taken_seconds"] = time_taken
+            return data
+
+        except requests.exceptions.ConnectionError:
+            msg = ("⚠️ Unable to connect to Ollama server." if language == "English"
+                   else "⚠️ Ollama server se connect nahi ho paa raha.")
+            return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
+        except requests.exceptions.Timeout:
+            msg = ("⚠️ Server took too long. Please try again." if language == "English"
+                   else "⚠️ Server ne bahut der laga di. Phir se try karo.")
+            return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
+        except json.JSONDecodeError:
+            logger.error("JSON parse error from Ollama. Raw output: %s", last_raw or raw_out)
+            return {
+                "action": "explain",
+                "tutor_response": _salvage_response(last_raw or raw_out, language),
+                "topic": "General",
+                "status": "Learning"
+            }
+        except Exception as e:
+            logger.error("Error communicating with Ollama: %s", e)
+            msg = (f"⚠️ Something went wrong: {e}" if language == "English"
+                   else f"⚠️ Kuch gadbad ho gayi: {e}")
             return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
 
-        # ── Extract and parse JSON ──
-        raw_out = _extract_json_string(raw_out)
-        data = json.loads(raw_out)
-
-        # Ensure critical keys exist
-        data.setdefault("action", "explain")
-        data.setdefault("tutor_response", "")
-        data.setdefault("topic", "General")
-        data.setdefault("status", "Learning")
-        data["time_taken_seconds"] = time_taken
-        return data
-
-    except requests.exceptions.ConnectionError:
-        msg = ("⚠️ Unable to connect to Ollama server." if language == "English"
-               else "⚠️ Ollama server se connect nahi ho paa raha.")
-        return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
-    except requests.exceptions.Timeout:
-        msg = ("⚠️ Server took too long. Please try again." if language == "English"
-               else "⚠️ Server ne bahut der laga di. Phir se try karo.")
-        return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
-    except json.JSONDecodeError:
-        logger.error("JSON parse error from Ollama. Raw output: %s", raw_out)
-        # Last resort: try to use the raw text as a plain-text tutor response
-        return {
-            "action": "explain",
-            "tutor_response": _salvage_response(raw_out, language),
-            "topic": "General",
-            "status": "Learning"
-        }
-    except Exception as e:
-        logger.error("Error communicating with Ollama: %s", e)
-        msg = (f"⚠️ Something went wrong: {e}" if language == "English"
-               else f"⚠️ Kuch gadbad ho gayi: {e}")
-        return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
+    # Should not reach here, but just in case
+    msg = ("⚠️ Model returned an empty response. Please try again." if language == "English"
+           else "⚠️ Model ne khaali jawab diya. Phir se try karo.")
+    return {"action": "clarify", "tutor_response": msg, "topic": "Error", "status": "Error"}
