@@ -674,7 +674,10 @@ async function sendMessage() {
     if (saveChatsEnabled && studentId) loadConversations(studentId);
 
 
-    appendMessage('bot', reply);
+    appendMessage('bot', reply, null, {
+      thoughtProcess: data.thought_process,
+      timeTaken: data.time_taken_seconds
+    });
 
     // Quiz card
     if (data.quiz_data && (action === 'quiz' || action === 'game')) {
@@ -688,7 +691,7 @@ async function sendMessage() {
 }
 
 // ─── Render message ───
-function appendMessage(type, text, images, badge) {
+function appendMessage(type, text, images, options = {}) {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const msgDiv = document.createElement('div');
   msgDiv.className = `msg msg--${type}`;
@@ -698,13 +701,24 @@ function appendMessage(type, text, images, badge) {
     imgsHtml = images.map(img => `<img src="${img.data}" class="msg-img" alt="attached">`).join('');
   }
 
-  const badgeHtml = '';
   const ttsHtml = type === 'bot' ? `<button class="tts-btn" onclick="speak(this.closest('.msg').querySelector('.msg-bubble').textContent)">${t('🔊 Listen', '🔊 सुनो')}</button>` : '';
 
   if (type === 'user') {
     msgDiv.innerHTML = `<div>${imgsHtml}<div class="msg-bubble">${escapeHtml(text)}</div><div class="msg-time" style="text-align:right;">${time}</div></div>`;
   } else {
-    msgDiv.innerHTML = `<div class="msg-avatar">प्र</div><div>${imgsHtml}${badgeHtml}<div class="msg-bubble">${formatResponse(text)}</div>${ttsHtml}<div class="msg-time">${time}</div></div>`;
+    let thoughtHtml = '';
+    if (options.thoughtProcess) {
+      const thoughtTime = options.timeTaken ? ` (${options.timeTaken}s)` : '';
+      thoughtHtml = `
+      <details class="msg-thought">
+        <summary>🧠 ${t('Thought Process', 'सोचने की प्रक्रिया')}${thoughtTime}</summary>
+        <div class="msg-thought-content">${escapeHtml(options.thoughtProcess)}</div>
+      </details>`;
+    } else if (options.timeTaken) {
+      thoughtHtml = `<div class="msg-time-badge">⏱️ ${options.timeTaken}s</div>`;
+    }
+
+    msgDiv.innerHTML = `<div class="msg-avatar">प्र</div><div>${imgsHtml}${thoughtHtml}<div class="msg-bubble">${formatResponse(text)}</div>${ttsHtml}<div class="msg-time">${time}</div></div>`;
   }
 
   chatMessages.appendChild(msgDiv);

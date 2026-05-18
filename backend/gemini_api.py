@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import requests
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -10,23 +11,26 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 MODEL_NAME = "gemma4:e4b"
 
 # ── Mode-specific generation options ──
+# NOTE: The system prompt is ~3000+ tokens, so num_ctx must be large enough
+# to fit it + chat history + the model's response.  Previous values of 1024/2048
+# starved the model and caused empty or generic cached outputs.
 MODE_OPTIONS = {
     "Fast Result": {
-        "num_ctx": 1024,
-        "num_predict": 256,
+        "num_ctx": 4096,
+        "num_predict": 512,
         "temperature": 0.8,
         "top_p": 0.85,
         "repeat_penalty": 1.1
     },
     "Long Think": {
-        "num_ctx": 2048,
-        "num_predict": 512,
+        "num_ctx": 8192,
+        "num_predict": 1024,
         "temperature": 0.5,
         "top_p": 0.9,
         "repeat_penalty": 1.15
     }
 }
-MODE_TIMEOUT = {"Fast Result": 60, "Long Think": 300}
+MODE_TIMEOUT = {"Fast Result": 120, "Long Think": 300}
 
 def _extract_json_string(text):
     """Attempt to extract a JSON object from freeform text."""
@@ -347,9 +351,10 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
         })
 
     # ── Invoke API ───────────────────────────────────────────────────────
-    # When images are present, do NOT force "format": "json" — gemma4 vision
-    # often returns empty content with that constraint.  The system prompt
-    # already asks for JSON, so we parse it ourselves.
+    # Do NOT force "format": "json" for ANY request — gemma4 often returns
+    # empty content with that constraint, especially with larger prompts or
+    # thinking mode.  The system prompt already asks for JSON output, and
+    # we have _extract_json_string() to handle freeform wrappers.
     payload = {
         "model": MODEL_NAME,
         "messages": messages,
@@ -358,18 +363,21 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
     }
 
     if images:
-        # Vision requests and math explanations need a much larger token budget
-        payload["options"]["num_predict"] = max(opts.get("num_predict", 256), 2048)
-        # Also bump the context window for images
-        payload["options"]["num_ctx"] = max(opts.get("num_ctx", 1024), 4096)
-    else:
-        # Text-only requests can safely use forced JSON mode
-        payload["format"] = "json"
+        # Vision requests need a larger token budget
+        payload["options"]["num_predict"] = max(opts.get("num_predict", 512), 2048)
+        payload["options"]["num_ctx"] = max(opts.get("num_ctx", 4096), 8192)
 
     try:
+        start_t = time.time()
         resp = requests.post(url, json=payload, timeout=timeout)
         resp.raise_for_status()
+        time_taken = round(time.time() - start_t, 1)
+        
         raw_out = resp.json().get("message", {}).get("content", "").strip()
+
+        print("\n=== RAW OLLAMA RESPONSE ===")
+        print(raw_out)
+        print("===========================\n")
 
         # ── Handle empty response ──
         if not raw_out:
@@ -387,6 +395,7 @@ def get_response(user_input, chat_history=None, images=None, weak_topics=None, l
         data.setdefault("tutor_response", "")
         data.setdefault("topic", "General")
         data.setdefault("status", "Learning")
+        data["time_taken_seconds"] = time_taken
         return data
 
     except requests.exceptions.ConnectionError:
